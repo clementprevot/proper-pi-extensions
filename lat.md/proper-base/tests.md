@@ -208,6 +208,8 @@ The same fixture verifies distinct colors for path, branch, input, output, cache
 
 A second fixture models pi's width-sensitive native render, which silently drops trailing model tags such as CLIProxyAPI's `fast` label when the one-line stats row overflows. It proves the layout's wide re-render recovers the full tag on the realigned model row at the original terminal width while extra status lines stay bounded.
 
+A third fixture loads proper-base against a temporary agent directory whose catalog marks the model capable, submits `/fast` through the installed editor, and proves the model row gains the warning-colored `fast` tag at the original width with a repaint requested, that a provider row already carrying the tag is not doubled, and that a second `/fast` removes it.
+
 ## Early cancellation fixture
 
 A session integration fixture verifies editable recovery of an unprocessed cancelled prompt.

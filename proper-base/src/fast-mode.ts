@@ -153,6 +153,14 @@ export class FastOverlay {
 		return this.modelsCache.ids.has(model.id);
 	}
 
+	/** Whether requests for this model currently carry the priority tier. */
+	isEffectiveFor(model: FastModel | undefined): boolean {
+		return (
+			(this.sessionEnabled || this.isGlobalEnabled()) &&
+			this.supportsModel(model)
+		);
+	}
+
 	/**
 	 * The replacement payload for pi's `before_provider_request`, or
 	 * `undefined` to keep it. Adds `service_tier` when Fast is on for a
@@ -166,11 +174,11 @@ export class FastOverlay {
 			return undefined;
 		}
 		const record = payload as JsonObject;
-		const effective = this.sessionEnabled || this.isGlobalEnabled();
-		if (effective && this.supportsModel(model)) {
+		if (this.isEffectiveFor(model)) {
 			if (record.service_tier === PRIORITY_TIER) return undefined;
 			return { ...record, service_tier: PRIORITY_TIER };
 		}
+		const effective = this.sessionEnabled || this.isGlobalEnabled();
 		if (!effective && record.service_tier === PRIORITY_TIER) {
 			const { service_tier: _dropped, ...rest } = record;
 			return rest;

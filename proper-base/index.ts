@@ -817,6 +817,7 @@ export default function (pi: ExtensionAPI) {
 							modelSupported: fastOverlay.supportsModel(ctx.model ?? undefined),
 						});
 						ctx.ui.notify(notice.message, notice.level);
+						tui.requestRender();
 						return true;
 					}
 					// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Model thinking argument]]
@@ -835,7 +836,9 @@ export default function (pi: ExtensionAPI) {
 			);
 			installAutocompleteDetails(editor, tui, theme);
 			removeFooterColors?.();
-			removeFooterColors = installFooterColors(tui, ctx);
+			removeFooterColors = installFooterColors(tui, ctx, () =>
+				fastOverlay.isEffectiveFor(ctx.model ?? undefined),
+			);
 			for (const prompt of seeded) historyGuard?.add(prompt);
 			return editor;
 		};

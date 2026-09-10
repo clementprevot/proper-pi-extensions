@@ -42,6 +42,7 @@ type FooterTheme = ExtensionContext["ui"]["theme"];
 type FooterState = {
 	ctx: ExtensionContext;
 	tui: TUI;
+	fast: (() => boolean) | undefined;
 };
 type FooterController = {
 	update(state: FooterState): void;
@@ -63,17 +64,18 @@ type FooterColorState = {
 export function installFooterColors(
 	tui: TUI,
 	ctx: ExtensionContext,
+	fast?: () => boolean,
 ): (() => void) | undefined {
 	const footer = findFooter(tui);
 	if (!footer) return undefined;
 
 	const existing = footer[INSTALLED];
 	if (existing) {
-		existing.update({ ctx, tui });
+		existing.update({ ctx, tui, fast });
 		return existing.uninstall;
 	}
 
-	let state = { ctx, tui };
+	let state: FooterState = { ctx, tui, fast };
 	let timer: ReturnType<typeof setInterval> | undefined;
 	const ownsRender = Object.hasOwn(footer, "render");
 	const render = footer.render;
@@ -114,17 +116,17 @@ export function installFooterColors(
 		if (level === "max" || level === "ultra") startAnimation();
 		else stopAnimation();
 		const theme = state.ctx.ui.theme;
-		return colorFooter(
-			layoutFooter(render.call(footer, width), width, theme, (wide) =>
-				render.call(footer, wide),
-			),
-			{
-				level,
-				model: state.ctx.model?.id,
-				now: Date.now(),
-				theme,
-			},
-		);
+		const model = state.ctx.model?.id;
+		const base = (at: number) => {
+			const lines = render.call(footer, at);
+			return model && state.fast?.() ? tagFast(lines, at, model, theme) : lines;
+		};
+		return colorFooter(layoutFooter(base(width), width, theme, base), {
+			level,
+			model,
+			now: Date.now(),
+			theme,
+		});
 	};
 	footer.dispose = () => {
 		controller.uninstall();
@@ -132,6 +134,53 @@ export function installFooterColors(
 	};
 	footer[INSTALLED] = controller;
 	return controller.uninstall;
+}
+
+// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Fast tier scopes]]
+/**
+ * Append the provider's `fast` chip when the session overlay makes Fast
+ * effective but the provider's own global flag is off. Pads are trimmed so
+ * the line keeps its width, matching how the provider's label would sit.
+ */
+function tagFast(
+	lines: string[],
+	width: number,
+	model: string,
+	theme: FooterTheme,
+): string[] {
+	const index = lines.findIndex((line) =>
+		stripTerminalSequences(line).includes(model),
+	);
+	const line = lines[index];
+	if (line === undefined) return lines;
+	const plain = stripTerminalSequences(line);
+	if (/ • fast(?: • |$)/.test(plain)) return lines;
+
+	const tag = ` • ${theme.fg("warning", "fast")}`;
+	const tagWidth = 7;
+	const total = visibleWidth(line);
+	const pausedAt = plain.lastIndexOf(" • paused");
+	const cut = pausedAt >= 0 ? pausedAt : total;
+	let head = sliceByColumn(line, 0, cut, true);
+	const tail = sliceByColumn(line, cut, total - cut, true);
+	const gap = [...plain.slice(0, cut).matchAll(/ {2,}/g)].at(-1);
+	if (gap?.index !== undefined) {
+		const trim = Math.min(
+			gap[0].length - 2,
+			Math.max(0, total + tagWidth - width),
+		);
+		if (trim > 0) {
+			head = `${sliceByColumn(head, 0, gap.index, true)}${sliceByColumn(
+				head,
+				gap.index + trim,
+				cut - gap.index - trim,
+				true,
+			)}`;
+		}
+	}
+	const result = [...lines];
+	result[index] = `${head}${tag}${tail}`;
+	return result;
 }
 
 function layoutFooter(

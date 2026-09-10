@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -306,5 +306,131 @@ test("footer layout reclaims usage width so model tags survive", async () => {
 	} finally {
 		footer.dispose();
 		await rm(cwd, { recursive: true, force: true });
+	}
+});
+
+test("footer shows the fast chip for session-scoped Fast", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "proper-base-footer-session-fast-"));
+	const agentDir = await mkdtemp(join(tmpdir(), "proper-base-footer-agent-"));
+	type SessionHandler = (event: unknown, ctx: any) => void | Promise<void>;
+	let onSessionStart: SessionHandler | undefined;
+	let installedFactory:
+		| ((tui: any, theme: any, keybindings: any) => any)
+		| undefined;
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	await writeFile(
+		join(agentDir, "cliproxyapi-models.json"),
+		JSON.stringify({ fastModelIds: ["gpt-6-astra"] }),
+	);
+
+	properBase({
+		on(event: string, handler: SessionHandler) {
+			if (event === "session_start") onSessionStart = handler;
+		},
+		getCommands: () => [],
+		registerCommand() {},
+	} as unknown as Parameters<typeof properBase>[0]);
+
+	let providerChip = "";
+	const statsLeft =
+		"\u219110M \u2193261K R114M W2M CH99.5% $115.997 55.5%/1.0M";
+	class FooterComponent {
+		render(width: number) {
+			const right = `gpt-6-astra \u2022 xhigh${providerChip}`;
+			const pad = " ".repeat(
+				Math.max(2, width - 1 - statsLeft.length - right.length),
+			);
+			return ["~/work/scribe (main)", `${statsLeft}${pad}${right}`];
+		}
+		invalidate() {}
+		dispose() {}
+	}
+	const footer = new FooterComponent();
+	const editor: {
+		onSubmit: ((text: string) => void) | undefined;
+		addToHistory(): void;
+		render(): string[];
+	} = {
+		onSubmit: undefined,
+		addToHistory() {},
+		render: () => ["editor"],
+	};
+	let renders = 0;
+	const tui = {
+		children: [{ children: [editor] }, { children: [footer] }],
+		requestRender() {
+			renders++;
+		},
+		terminal: { rows: 24 },
+		showOverlay() {
+			return { hide() {} };
+		},
+	};
+	const theme = {
+		fg: (name: string, text: string) =>
+			name === "warning" ? `<${text}>` : text,
+		getThinkingBorderColor: () => (text: string) => text,
+		getFgAnsi: () => "",
+	};
+	const notices: string[] = [];
+	const ctx = {
+		cwd,
+		model: { provider: "cliproxyapi", id: "gpt-6-astra" },
+		thinkingLevel: "xhigh",
+		sessionManager: { getBranch: () => [], getSessionFile: () => undefined },
+		ui: {
+			getEditorComponent: () => () => editor,
+			setEditorComponent: (factory: typeof installedFactory) => {
+				installedFactory = factory;
+			},
+			notify: (message: string) => notices.push(message),
+			theme,
+		},
+	};
+
+	try {
+		await onSessionStart?.({}, ctx);
+		installedFactory?.(
+			tui,
+			{
+				borderColor: (text: string) => text,
+				selectList: { description: (text: string) => text },
+			},
+			new KeybindingsManager(),
+		);
+		editor.onSubmit = () => {};
+		const submit = (text: string) => editor.onSubmit?.(text);
+		const plain = () => footer.render(100).map(stripTerminalSequences);
+		assert.ok(plain()[1]?.endsWith("gpt-6-astra \u2022 xhigh"));
+
+		const before = renders;
+		submit("/fast");
+		assert.equal(notices[0], "Fast mode enabled for this session.");
+		assert.ok(renders > before);
+		const on = footer.render(100);
+		assert.ok(
+			stripTerminalSequences(on[1] ?? "").endsWith(
+				"gpt-6-astra \u2022 xhigh \u2022 <fast>",
+			),
+		);
+		assert.equal(stripTerminalSequences(on[1] ?? "").length, 99);
+
+		providerChip = " \u2022 fast";
+		assert.equal(
+			(stripTerminalSequences(footer.render(100)[1] ?? "").match(/fast/g) ?? [])
+				.length,
+			1,
+		);
+		providerChip = "";
+
+		submit("/fast");
+		assert.ok(plain()[1]?.endsWith("gpt-6-astra \u2022 xhigh"));
+	} finally {
+		footer.dispose();
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		await rm(cwd, { recursive: true, force: true });
+		await rm(agentDir, { recursive: true, force: true });
 	}
 });
