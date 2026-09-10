@@ -216,6 +216,12 @@ A session integration fixture verifies editable recovery of an unprocessed cance
 
 It submits through the wrapped editor, captures the accepted user entry, and presses Esc before assistant processing. The prompt returns immediately, settlement schedules the internal command, a hidden anchor makes a leaf user entry navigable, and tree navigation abandons the cancelled turn. Further phases cover pre-input routing cancellation, processed-turn retention, delegation of queued streaming prompts to Pi's native restoration, and the streaming `pending` partial: an assistant start carrying it leaves the turn cancellable, and only a subsequent message update closes the window. A final phase appends another extension's transcript entry between submission and the user message and proves navigation targets the pre-submission leaf, so that entry leaves the branch with the prompt instead of remaining as its surviving parent.
 
+## Proactive delegation fixture
+
+The proactive-delegation fixture verifies the policy rewrite touches only the two explicit-only sentences and stays inert where it does not apply.
+
+A system prompt carrying pi-subagents' guideline and advertised catalog must lose both `only when delegation is needed` sentences, keep the catalog's preflight instruction and unrelated guidelines, and end with the mode paragraph; a prompt without those sentences still gains the paragraph. An absent `subagent` tool or a prompt already carrying the paragraph must return `undefined`. `proactiveDelegation: false` in `proper-base.json` reads as disabled while a missing key, missing file, or damaged file reads as enabled.
+
 ## Questionnaire cancellation fixture
 
 A fixture drives the registered `tool_result` handler with synthetic tool results and records whether `ctx.abort()` was called.
@@ -226,7 +232,7 @@ It verifies a dismissed questionnaire aborts, while an answered one, a failure e
 
 The transient-retry fixture verifies CLIProxyAPI transient stream errors become retryable without touching other messages.
 
-An errored assistant message whose text matches the CPA `empty_stream` pattern must return a copy whose `errorMessage` gains the `network error:` prefix pi treats as retryable. User messages, non-error stops, unrelated error text, and already-prefixed messages must pass through by reference so the `message_end` handler performs no transform.
+An errored assistant message whose text matches the CPA `empty_stream` pattern or Astra's `at capacity` wording must return a copy whose `errorMessage` gains the `network error:` prefix pi treats as retryable. User messages, non-error stops, unrelated error text, and already-prefixed messages must pass through by reference so the `message_end` handler performs no transform.
 
 ## Fast tier fixture
 

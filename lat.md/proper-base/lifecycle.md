@@ -384,6 +384,14 @@ The same result also reports `cancelled` for host and validation failures, which
 
 The handler is registered once at extension load rather than per `session_start`, so reload, resume, and fork cannot stack it.
 
+## Proactive delegation
+
+A `before_agent_start` handler turns pi-subagents' explicit-request-only delegation policy into Codex's proactive multi-agent mode.
+
+Codex switches GPT-6 Astra into `MultiAgentMode::Proactive` when the user selects the Ultra effort: a developer message saying delegation no longer waits for an explicit request and any parallelizable work should be handed to another agent. pi-subagents sets the opposite policy through two sentences it places in the system prompt, the tool guideline `Use subagent only when delegation is needed.` and the matching sentence in its `<advertised_subagents>` catalog. The handler rewrites exactly those two sentences to their proactive form and appends Codex's paragraph, retargeted at pi's `subagent` tool, under a `# Multi-agent mode` heading. The catalog's preflight instruction to confirm executability through `{action:"list",capabilities:true}` and the tool description's safety guidance are untouched, since they govern how to delegate rather than whether to.
+
+The rewrite runs only when the `subagent` tool is among the turn's selected tools, so sessions without pi-subagents keep their prompt byte-identical, and it is idempotent across the chained `before_agent_start` handlers. `"proactiveDelegation": false` in the agent directory's `proper-base.json`, the same file the other toggles use, disables it; a missing or damaged config reads as enabled.
+
 ## Commit message guard
 
 A `tool_call` handler blocks `bash` and `quill_execute` commands whose `git commit` invocation violates the house commit rules.
@@ -394,9 +402,9 @@ A blocked call returns every validation error in one reason so the model can fix
 
 ## Transient stream retry
 
-A `message_end` handler makes CLIProxyAPI's `empty_stream` failure retryable instead of turn-fatal.
+A `message_end` handler makes CLIProxyAPI's `empty_stream` failure and Astra's at-capacity failure retryable instead of turn-fatal.
 
-CLIProxyAPI can close a stream before the first payload; pi-ai surfaces this as a `Codex error: empty_stream: upstream stream closed before first payload` assistant error that matches none of pi's retryable patterns, so the turn dies. The handler rewrites such errored assistant messages with the `network error:` prefix, after which pi's normal retry budget and backoff apply.
+CLIProxyAPI can close a stream before the first payload; pi-ai surfaces this as a `Codex error: empty_stream: upstream stream closed before first payload` assistant error that matches none of pi's retryable patterns, so the turn dies. GPT-6 Astra additionally returns `server_overloaded` as `Selected model is at capacity. Please try a different model.`, which pi-ai's `overloaded` pattern misses. The handler rewrites such errored assistant messages with the `network error:` prefix, after which pi's normal retry budget and backoff apply.
 
 Matching is by error text alone, not provider ID, because the wording is CPA-specific. Already-prefixed messages pass through untouched, so the normalizer composes with the provider package's own `message_end` normalizer, which covers different patterns; pi chains `message_end` transforms across extensions in load order.
 

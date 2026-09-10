@@ -12,7 +12,7 @@ Pi session messages contain model-facing expansions rather than trustworthy raw 
 
 The runtime is split by responsibility.
 
-- `index.ts` wires `session_start`, first-response session naming, model-preserving `/clear`, editor replacement, early-cancel branch recovery, base keybinding overrides, `ask_user_question` cancellation, the commit-guard `tool_call` handler, and the package entry point.
+- `index.ts` wires `session_start`, first-response session naming, proactive delegation, model-preserving `/clear`, editor replacement, early-cancel branch recovery, base keybinding overrides, `ask_user_question` cancellation, the commit-guard `tool_call` handler, and the package entry point.
 - `src/autocomplete-details.ts` owns overlay lifecycle, boxed rendering, terminal positioning, selected-description updates, descending `/model` argument ordering, argument re-trigger after an accepted command completion, the optional `/model` thinking-level argument and its parser, and Enter submission of accepted `/model` completions.
 - `src/startup-defaults.ts` writes the selected provider, model ID, and thinking level into Pi's `settings.json` startup defaults, honoring the `stickyDefaults` opt-out.
 - `src/commit-guard.ts` ports the commit-message validator hook: shell tokenization, direct-invocation and literal-message checks, and 72-column, blank-second-line, trailer, and attribution rules.
@@ -38,6 +38,7 @@ The runtime is split by responsibility.
 - `src/recorder.ts` intercepts editor submission while preserving later handler assignments and repeated installation.
 - `src/session-list.ts` replaces pi's session listing with byte-prefix scans that read only what the `/resume` picker draws, and refills picker search text in the background.
 - `src/store.ts` owns project-key encoding, private JSONL appends, bounded tail reads, and compaction.
+- `src/proactive-delegation.ts` rewrites pi-subagents' explicit-request-only sentences in the system prompt and appends Codex's proactive multi-agent mode paragraph.
 - `src/transient-retry.ts` rewrites CLIProxyAPI transient stream errors into pi's retryable form.
 - `src/fast-mode.ts` scopes CLIProxyAPI's priority service tier into a session-only `/fast` and a live cross-session `/fast-global` by owning the final `service_tier` on outgoing requests.
 - `test/` uses built-in `node:test` against pure logic, real temporary files, and a small editor integration fixture; `tsconfig.json` and package-local dependencies provide no-emit diagnostics and pi-tui wrapping utilities, not a test framework or build step.
@@ -65,7 +66,7 @@ These rules preserve history and autocomplete details without destabilizing the 
 17. Alt+Enter inserts prompt newlines and is not retained as the follow-up queue shortcut; Pi's own newline defaults are left alone rather than restated.
 18. Up recalls history only from an empty prompt, never over a draft, and leaves a recalled prompt at line 0, column 0; Home then moves through the current visible-row and full-prompt starts, while End moves through logical-line and full-prompt ends without taking over Ctrl+Shift+Home/End.
 19. The jump-to-bottom button exists only for a viewport renderer that is not following output, occupies an editor row rather than an overlay so scrollbar dragging survives, and consumes only the mouse events landing on its own cells.
-20. Transient-error normalization touches only errored assistant messages matching the CPA `empty_stream` wording and never re-prefixes an already retryable message.
+20. Transient-error normalization touches only errored assistant messages matching the CPA `empty_stream` or Astra `at capacity` wording and never re-prefixes an already retryable message.
 21. Assistant and tool completion only makes errors and tools eligible to compact; they stay native until a later transcript component contains non-empty text other than the `Working` indicator, then each renders in original order as its own labeled summary with a distinct semantic theme color; thoughts, tool-calling text, and owned status updates remain fully rendered, with a blank row above and below updates; settlement compacts eligible items in the completed run; output appended while idle, including slash-command UI, remains native; fullscreen clicks on either a compact item's summary or repeated bottom collapse control toggle only that item, while the configured tool-output binding remains the global fallback.
 22. Prompt-template expansion remains model-facing: the user transcript shows the raw slash command live and after session restoration, using persisted hashes without duplicating expanded bodies or changing model context.
 23. Image blocks remain in model context through the user turn that introduced them; a later user message replaces older image blocks only in the outbound context copy, preserving current-turn tool loops, message order, tool-result structure, and persisted session history.
@@ -85,6 +86,7 @@ These rules preserve history and autocomplete details without destabilizing the 
 37. A `/model <reference> <level>` submission is taken over ahead of Pi only when the level names one of Pi's seven levels and the reference resolves inside the session's model scope; the model is applied before the level, because every model switch recomputes the level from settings. Any other shape, including an unresolvable reference, reaches Pi unchanged.
 38. The thinking-level menu opens from a Tab-accepted model name and from a hand-typed separator, never from Pi's own triggers, and only inside a single-line `/model` command whose argument already holds a `provider/id` reference; the level in effect leads the list so its default selection is a no-op.
 39. Fullscreen above-editor widgets render inside the transcript document with trailing blank rows dropped, the dock keeps only Pi's one spacer row, regular mode is untouched, and disposal restores the native dock.
+40. Proactive delegation changes the system prompt only when the `subagent` tool is selected for the turn, replaces exactly pi-subagents' two explicit-only sentences while leaving its preflight and safety guidance intact, appends the mode paragraph once, and is turned off by `proactiveDelegation: false`.
 
 ## Clipboard leak guard
 

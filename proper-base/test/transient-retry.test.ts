@@ -18,6 +18,17 @@ test("CPA empty_stream errors are rewritten into pi's retryable form", () => {
 	assert.equal(normalized.errorMessage, `network error: ${CPA_ERROR}`);
 });
 
+test("Astra at-capacity errors are rewritten into pi's retryable form", () => {
+	const errorMessage =
+		"Codex error: Selected model is at capacity. Please try a different model.";
+	const normalized = normalizeCpaTransientError({
+		role: "assistant",
+		stopReason: "error",
+		errorMessage,
+	});
+	assert.equal(normalized.errorMessage, `network error: ${errorMessage}`);
+});
+
 test("non-matching messages pass through by reference", () => {
 	const cases = [
 		{ role: "user", stopReason: "error", errorMessage: CPA_ERROR },

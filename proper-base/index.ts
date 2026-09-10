@@ -58,6 +58,10 @@ import { installJumpToBottom } from "./src/jump-to-bottom.ts";
 import { installOsc8LinkIds } from "./src/osc8-link-ids.ts";
 import { installOverlayScroll } from "./src/overlay-scroll.ts";
 import {
+	applyProactiveDelegation,
+	readProactiveDelegationEnabled,
+} from "./src/proactive-delegation.ts";
+import {
 	createPromptDisplay,
 	PROMPT_DISPLAY_ENTRY,
 } from "./src/prompt-display.ts";
@@ -512,6 +516,18 @@ export default function (pi: ExtensionAPI) {
 			ctx.sessionManager.getBranch(),
 		);
 		if (messages !== event.messages) return { messages };
+	});
+
+	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Proactive delegation]]
+	pi.on("before_agent_start", (event) => {
+		if (!readProactiveDelegationEnabled(getAgentDir())) return;
+		const tools =
+			event.systemPromptOptions?.selectedTools ?? pi.getActiveTools?.() ?? [];
+		const systemPrompt = applyProactiveDelegation(
+			event.systemPrompt,
+			tools.includes("subagent"),
+		);
+		if (systemPrompt !== undefined) return { systemPrompt };
 	});
 
 	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Automatic session title]]

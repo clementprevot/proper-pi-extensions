@@ -6,6 +6,10 @@
  * pi's normal retry budget/backoff apply. Same mechanism the provider
  * package uses for its own transient patterns; message_end transforms
  * chain, so both normalizers compose.
+ *
+ * GPT-6 Astra also returns `server_overloaded` as "Selected model is at
+ * capacity. Please try a different model.", which pi-ai's `overloaded`
+ * pattern does not match; it gets the same prefix.
  */
 
 /** Structural subset of pi-ai's AssistantMessage used by the normalizer. */
@@ -16,7 +20,7 @@ export interface ErroredMessage {
 }
 
 const CPA_TRANSIENT_ERROR_PATTERN =
-	/\bempty_stream\b|\bupstream stream closed before first payload\b/i;
+	/\bempty_stream\b|\bupstream stream closed before first payload\b|\bat capacity\b/i;
 const NETWORK_ERROR_PREFIX = "network error:";
 
 /** Return a retryable copy of a CPA transient stream error, or the
