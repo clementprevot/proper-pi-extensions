@@ -224,6 +224,14 @@ The transformation is display-only. Session messages and component order remain 
 
 Pi re-renders the full component tree every frame and relies on each component's internal cache, so the wrapper must not rebuild component content per frame. Rendering a subset of an assistant message swaps content via `updateContent`, which recreates the component's Markdown children and discards their caches; those subset renders are therefore memoized per component, message identity, width, and content-part indices, and recomputed only when one of these changes. Tool detail rows call `setExpanded` only when the desired state differs from the component's current state, because a redundant call rebuilds the tool's result renderer and re-sanitizes full outputs. A `chat.invalidate` wrapper drops the memoized lines whenever Pi invalidates components (theme or terminal cell changes), keeping stale styling out of settled rows. Without this, long sessions pinned the event loop at full CPU: every 16ms frame re-parsed the entire transcript's markdown.
 
+## Transcript widgets
+
+In fullscreen mode, above-editor extension widgets render as the transcript's live tail instead of a pinned dock.
+
+Pi places `setWidget` output in a dock between the scroll view and the prompt, so a widget never scrolls with the session and keeps every row it ever claimed: pi-subagents' async-agents card locks a row budget the first time it overflows and pads with blank lines once its content shrinks, which left half the screen empty until `/reload` rebuilt the widget. The editor factory locates Pi's above-editor widget container by walking from the alternate-screen layout root to the container that precedes the editor's own, one microtask after the editor mounts. It replaces that container's `render()` with a single blank row, matching the spacer Pi draws there when no widget is set, and appends a mirror component to the document container after the chat. The mirror renders every non-spacer widget child at the transcript width, drops trailing blank rows, and prefixes one blank separator when anything remains, so a card shrinks and grows with its content and scrolls away with the messages that produced it while follow mode keeps its latest state at the bottom.
+
+The mirror is appended after the chat container, so the settled-transcript wrapper, outline rows, and jump chips keep their document offsets. Regular mode has no layout root and installs nothing; a repeated installation takes over the previous wrapper, and disposal restores the native dock renderer and removes the mirror.
+
 ## Pinned transcript scrolling
 
 Pinned scrolling comes from pi's native fullscreen renderer; proper-base keeps that renderer switch available and changes which keys target it.
@@ -243,6 +251,14 @@ A mouse-wheel event moves the fullscreen transcript three lines by default inste
 Pi's fullscreen renderer constructs itself with a one-line wheel step: the `wheelScrollLines` option defaults to 1, and pi neither passes an override nor exposes a setting for it. Terminals typically multiply a wheel notch to about three lines with acceleration, so pi's fullscreen transcript scrolls noticeably slower than every other terminal surface. No escape sequence lets an application query the terminal's own wheel configuration, so the editor factory raises the renderer's numeric `wheelScrollLines` field to the 3-line application convention shared by vim and less.
 
 A `PROPER_WHEEL_SCROLL_LINES` environment variable overrides the step per terminal — each terminal's profile can export the value matching its native behavior — and any non-positive or unparseable value falls back to the default, with fractional input floored. SGR wheel reports cannot distinguish one discrete mouse notch from one line of a high-rate trackpad stream, so a terminal that emits one report per native line scrolls proportionally faster; exporting an override of 1 there restores pi's original pace. Pi 0.85.1 added its own Alt+wheel acceleration, a fixed five-times multiplier applied to `wheelScrollLines` when the SGR report carries the Alt bit; it reads the field per event, so it compounds with proper-base's step (fifteen lines per Alt+notch at the default) and needs no accommodation. Only a renderer already exposing a numeric `wheelScrollLines` is touched: regular mode owns no wheel input, and a renamed upstream field fails open to pi's native behavior.
+
+## Overlay transcript scrolling
+
+The fullscreen transcript keeps scrolling by wheel and viewport keys while a capturing overlay such as an `ask_user_question` questionnaire owns focus.
+
+Pi's alternate-screen viewport listener declines every wheel event and `tui.altScreen` scroll key as soon as a capturing overlay is focused, so the transcript behind a full-height questionnaire could not be scrolled at all. A listener registered after the renderer's own therefore only sees input the viewport already passed on. While an overlay is focused it routes wheel reports through the renderer's own wheel router (so nested scroll views, the wheel step, and Alt acceleration behave as usual) and maps the eight `tui.altScreen` scroll actions, read from the shared keybinding manager, onto the renderer's public scroll methods with pi's page overlap and half-page arithmetic. Matched keys are consumed so the overlay never receives a scroll chord; typing and every other key still reach the overlay. Overlays that handle their own wheel events, such as scrollable previews, still win because the renderer dispatches to the overlay under the pointer before declining.
+
+Like selection dismissal, this is a guarded layer over the renderer: regular mode and shapes without the public scroll methods install nothing, a renamed private wheel router falls back to a plain scroll by the wheel step, and disposal is identity-guarded so a stale extension instance cannot remove the live listener.
 
 ## Smart fullscreen selection
 

@@ -116,11 +116,19 @@ pinned while Pi scrolls the transcript above them.
 | Home, End, PageUp, PageDown | Stay assigned to the prompt editor. |
 | Ctrl+Shift+Home or End | Jump the transcript to its top or bottom. |
 | Ctrl+Shift+PageUp or PageDown | Scroll the transcript by one page. |
+
+Wheel and transcript scroll keys keep working while an `ask_user_question`
+questionnaire or other overlay has focus, so earlier context stays reachable.
 | Double-click | Select a complete one-line URL, path, flag, qualified identifier, or quoted value when possible. |
 
 Scrolling away from current output adds a `↓ jump to bottom` row above the
 prompt. Clicking it returns to the newest output without disabling scrollbar
 dragging.
+
+Extension widgets that Pi would pin above the prompt (for example the
+pi-subagents async-agents card) render at the end of the transcript instead, so
+they scroll with the session and shrink as their content does rather than
+holding rows they no longer need.
 
 The transcript's top-right corner carries muted `↑` and `↓` arrows that walk
 the viewport between your own prompts. Clicking `↓` past the last prompt scrolls

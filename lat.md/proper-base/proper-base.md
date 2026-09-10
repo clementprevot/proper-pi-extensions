@@ -19,6 +19,7 @@ The runtime is split by responsibility.
 - `src/clipboard-guard.ts` neutralizes the X-connection leak in pi's bundled native clipboard addon by swapping its Linux read entry points for the platform tools pi already trusts.
 - `src/editor-navigation.ts` implements three-stage Ctrl+C clearing and exit, terminal-style Ctrl+R reverse history search, large-paste-registry-preserving text replacement, private-segmenter composition for whole-marker highlighting and native atomic deletion, atomic Left/Right movement across image markers, recalled-history cursor placement, and two-stage Home/End behavior while preserving configured keybindings and custom editor fallback.
 - `src/footer-colors.ts` rearranges Pi's built-in footer statistics, applies model and effort colors, and owns the bounded maximum-effort animation timer.
+- `src/overlay-scroll.ts` keeps wheel and viewport-key transcript scrolling working while a capturing overlay such as `ask_user_question` owns focus.
 - `src/jump-to-bottom.ts` renders the scrolled-up jump-to-bottom button as an editor row and claims mouse input ahead of the alternate-screen renderer.
 - `src/prompt-jump.ts` composites previous/next prompt chips, a scrolled-only position reading, and the faint-resting, hover-expanded session action rail of per-type symbols into the transcript viewport, and scrolls between user prompt blocks or to a clicked action.
 - `src/settings.ts` persists proper-base's on/off choices (session action rail, prompt mouse clicks) in the agent directory and splices their toggles into Pi's native settings selector through a guarded container wrapper.
@@ -30,6 +31,7 @@ The runtime is split by responsibility.
 - `src/osc8-link-ids.ts` rewrites fullscreen terminal writes so every anonymous OSC 8 open carries a stable URI-derived id, making wrapped transcript links one hover-and-activation unit in id-aware terminals.
 - `src/selection-dismiss.ts` drops the fullscreen mouse selection when a keystroke or paste reaches the editor, while mouse, viewport, and terminal-report input leave it standing.
 - `src/wheel-scroll.ts` raises the fullscreen renderer's per-wheel-event line step to the 3-line terminal scrolling convention, with a per-terminal environment override and fail-open field detection.
+- `src/widget-transcript.ts` moves fullscreen above-editor extension widgets out of Pi's pinned dock and into the document as a padding-free live tail that scrolls with the session.
 - `src/transcript-cleanup.ts` keeps the active run live, leaves thoughts and settled updates fully rendered, compacts tools and errors behind per-item summaries, records the per-action outline the session action rail consumes, and claims clicks on those summaries ahead of fullscreen selection handling.
 - `src/history-guard.ts` blocks Pi's transformed session replay and admits only recorder-trusted prompts.
 - `src/history.ts` contains pure recall filtering, timestamp ordering, deduplication, and editor-factory unwrapping.
@@ -82,6 +84,7 @@ These rules preserve history and autocomplete details without destabilizing the 
 36. A `set` or `cycle` model selection is written to Pi's `defaultProvider`/`defaultModel` startup keys and a selected thinking level to `defaultThinkingLevel`, the level as clamped to the active model; a `restore` selection, the `llm-router` routing placeholder, a level already set as that model's `modelThinkingLevels` rule, an unchanged value, a missing or damaged `settings.json`, and `"stickyDefaults": false` all write nothing, and no other setting is modified.
 37. A `/model <reference> <level>` submission is taken over ahead of Pi only when the level names one of Pi's seven levels and the reference resolves inside the session's model scope; the model is applied before the level, because every model switch recomputes the level from settings. Any other shape, including an unresolvable reference, reaches Pi unchanged.
 38. The thinking-level menu opens from a Tab-accepted model name and from a hand-typed separator, never from Pi's own triggers, and only inside a single-line `/model` command whose argument already holds a `provider/id` reference; the level in effect leads the list so its default selection is a no-op.
+39. Fullscreen above-editor widgets render inside the transcript document with trailing blank rows dropped, the dock keeps only Pi's one spacer row, regular mode is untouched, and disposal restores the native dock.
 
 ## Clipboard leak guard
 
@@ -97,7 +100,7 @@ macOS and Windows keep the addon untouched: pi implements no subprocess clipboar
 
 Each document owns one runtime concern.
 
-- [lifecycle](./lifecycle.md) — startup, session listing, prompt sources, reverse search, prompt clearing and exit, cursor navigation, image previews and outbound image context, settled transcript detail, early-cancel recovery, editor composition, fullscreen key routing, wheel scroll rate, smart selection, selection dismissal, fast tier scopes, the jump-to-bottom button, the prompt jump chips, the session action rail, prompt mouse clicks, autocomplete details, footer decoration, the sticky startup defaults, the commit message guard, and transient stream retry.
+- [lifecycle](./lifecycle.md) — startup, session listing, prompt sources, reverse search, prompt clearing and exit, cursor navigation, image previews and outbound image context, settled transcript detail, transcript widgets, early-cancel recovery, editor composition, fullscreen key routing, wheel scroll rate, overlay transcript scrolling, smart selection, selection dismissal, fast tier scopes, the jump-to-bottom button, the prompt jump chips, the session action rail, prompt mouse clicks, autocomplete details, footer decoration, the sticky startup defaults, the commit message guard, and transient stream retry.
 - [storage](./storage.md) — project paths, JSONL format, permissions, bounded reads, limits, and compaction.
 - [operations](./operations.md) — package identity, installation, runtime requirements, and data removal.
 - [tests](./tests.md) — deterministic history, recorder, autocomplete, fullscreen key routing, footer styling, and real-filesystem store coverage.

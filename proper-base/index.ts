@@ -56,6 +56,7 @@ import {
 } from "./src/image-preview.ts";
 import { installJumpToBottom } from "./src/jump-to-bottom.ts";
 import { installOsc8LinkIds } from "./src/osc8-link-ids.ts";
+import { installOverlayScroll } from "./src/overlay-scroll.ts";
 import {
 	createPromptDisplay,
 	PROMPT_DISPLAY_ENTRY,
@@ -83,6 +84,7 @@ import {
 } from "./src/transcript-cleanup.ts";
 import { normalizeCpaTransientError } from "./src/transient-retry.ts";
 import { installWheelScrollLines } from "./src/wheel-scroll.ts";
+import { installWidgetTranscript } from "./src/widget-transcript.ts";
 
 /** Prompts seeded into the editor. Older prompts past this point are dropped. */
 const MAX_ENTRIES = 200;
@@ -302,10 +304,12 @@ export default function (pi: ExtensionAPI) {
 	let removePromptClear: (() => void) | undefined;
 	let removeSmartSelection: (() => void) | undefined;
 	let removeSelectionDismiss: (() => void) | undefined;
+	let removeOverlayScroll: (() => void) | undefined;
 	let removeOsc8LinkIds: (() => void) | undefined;
 	let imagePreview: ImagePreviewController | undefined;
 	let removeTerminalInput: (() => void) | undefined;
 	let transcriptCleanup: TranscriptCleanupController | undefined;
+	let removeWidgetTranscript: (() => void) | undefined;
 	let activeEditor: PromptEditor | undefined;
 	let activeTui: EditorTui | undefined;
 	let submittedPrompt: string | undefined;
@@ -638,12 +642,16 @@ export default function (pi: ExtensionAPI) {
 		removeSmartSelection = undefined;
 		removeSelectionDismiss?.();
 		removeSelectionDismiss = undefined;
+		removeOverlayScroll?.();
+		removeOverlayScroll = undefined;
 		removeOsc8LinkIds?.();
 		removeOsc8LinkIds = undefined;
 		imagePreview?.dispose();
 		imagePreview = undefined;
 		removeTerminalInput?.();
 		removeTerminalInput = undefined;
+		removeWidgetTranscript?.();
+		removeWidgetTranscript = undefined;
 		transcriptCleanup?.uninstall();
 		transcriptCleanup = undefined;
 		activeEditor = undefined;
@@ -746,6 +754,9 @@ export default function (pi: ExtensionAPI) {
 			// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Settled transcript]]
 			transcriptCleanup?.uninstall();
 			transcriptCleanup = installTranscriptCleanup(tui, ctx);
+			// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Transcript widgets]]
+			removeWidgetTranscript?.();
+			removeWidgetTranscript = installWidgetTranscript(tui, editor);
 			removeSmartSelection?.();
 			removeSmartSelection = installSmartSelection(tui);
 			removeSelectionDismiss?.();
@@ -756,6 +767,9 @@ export default function (pi: ExtensionAPI) {
 					.getKeys("app.message.copy")
 					.some((key) => matchesKey(data, key)),
 			);
+			// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Overlay transcript scrolling]]
+			removeOverlayScroll?.();
+			removeOverlayScroll = installOverlayScroll(tui);
 			// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Hyperlink identity]]
 			removeOsc8LinkIds?.();
 			removeOsc8LinkIds = installOsc8LinkIds(tui);

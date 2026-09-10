@@ -132,6 +132,12 @@ A memoization fixture proves repeated same-width renders never rebuild completed
 
 It settles a transcript containing a tool-calling assistant message and a collapsed tool card, instruments the instance `updateContent` and `setExpanded` methods, and renders three frames at one width. Rebuild and expansion-call counts must not grow after the first frame, proving the wrapper serves memoized assistant subset lines and skips redundant tool expansion updates. A wider fourth render must recompute and still emit the thinking text, proving width changes invalidate the memo instead of serving stale lines. This guards the frame cost that once re-parsed the whole transcript's markdown every 16ms render and pinned the event loop.
 
+## Transcript widget fixture
+
+A fake fullscreen layout verifies widgets move into the document and give their rows back.
+
+The fixture builds Pi's document/dock shape under a layout root, installs the wrapper, and proves the dock container renders only its blank spacer row while a widget padded with blank lines appears after the chat with those rows dropped; clearing the widget removes the mirror rows, and disposal restores the dock renderer. A second case proves a renderer without a layout root installs nothing, and that reinstallation leaves exactly one mirror whose older disposer is a no-op.
+
 ## Base keybinding fixture
 
 A session integration fixture applies the real Pi 0.85.1 `KeybindingsManager` to the installed editor factory.
@@ -143,6 +149,12 @@ It verifies Ctrl+V and Ctrl+Shift+V both match Pi's clipboard paste action witho
 Pure resolution and install cases pin the wheel step's default, override grammar, and fail-open renderer guard.
 
 Resolution returns 3 for an absent, empty, non-numeric, zero, or negative `PROPER_WHEEL_SCROLL_LINES` and the parsed value for a positive integer. Installation patches only an object already carrying a numeric `wheelScrollLines`, floors fractional input, and leaves a shape without the field untouched — the regular-mode renderer never gains the property.
+
+## Overlay scroll fixture
+
+A fake fullscreen renderer with a consuming viewport listener verifies scroll input reaches the transcript only while an overlay is focused.
+
+Wheel parsing mirrors the renderer's SGR decoding for both directions and rejects non-wheel buttons and plain text. Without a focused overlay the renderer's earlier listener keeps every wheel and page key; once an overlay is focused a wheel report reaches the renderer's wheel router, PageUp and PageDown scroll by the viewport height minus pi's overlap, Home and End reach the top and bottom, and each is consumed, while typing and arrow keys stay unconsumed for the overlay. A shape without the public scroll methods installs nothing and disposal removes the listener.
 
 ## Smart selection fixture
 
