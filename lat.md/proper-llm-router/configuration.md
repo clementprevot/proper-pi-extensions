@@ -27,7 +27,7 @@ The default exemplar path resolves beside the loaded `llm-router.ts`, so a packa
 
 Routing is active when the file's `enabled` flag is true and `LLM_ROUTER_OFF` is not `1`, or whenever `LLM_ROUTER_ON=1` is set in the process environment.
 
-`routingEnabled()` gates startup activation, sentinel help, and the pinned-command confirm dialog. It never gates the input handler: a session already on `llm-router/auto` still routes, so the switch prevents activation rather than killing armed sessions.
+`routingEnabled()` gates startup activation and sentinel help. It never gates the input handler: a session already on `llm-router/auto` still routes, so the switch prevents activation rather than killing armed sessions.
 
 The file flag is global. Every pi process reads it on `session_start` and `before_agent_start`, so turning it off in one session stops new sessions and spawned children from arming without a restart.
 

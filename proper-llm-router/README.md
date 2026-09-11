@@ -266,7 +266,7 @@ The full JSON editor writes a complete merged config.
 
 | Variable | Effect |
 | --- | --- |
-| `LLM_ROUTER_OFF=1` | Same as `"enabled": false`: stops automatic startup activation and sentinel help. A session already on `llm-router/auto` can still route. A pinned workflow command in an interactive session opens a confirm dialog: continue unrouted, or stop the run before the agent starts. |
+| `LLM_ROUTER_OFF=1` | Same as `"enabled": false`: stops automatic startup activation and sentinel help. A session already on `llm-router/auto` can still route. Pinned workflow commands run unrouted without prompting. |
 | `LLM_ROUTER_ON=1` | Overrides `LLM_ROUTER_OFF` and a disabled config file for one process tree. The config menu's session switch sets it. |
 | `JUDGE_EXEMPLARS=0` | Skips measured exemplar retrieval. |
 | `CPA_SIMULATE_UNAVAILABLE="arm1,arm2"` | Treats exact arm keys as down for swap testing. |
