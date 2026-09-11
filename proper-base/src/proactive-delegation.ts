@@ -25,15 +25,22 @@ const PROACTIVE_GUIDELINE =
 const PROACTIVE_CATALOG_SENTENCE =
 	"Their descriptions indicate available specializations; delegate to them proactively whenever work parallelizes.";
 
-/** Codex's `PROACTIVE_MULTI_AGENT_MODE_TEXT`, retargeted at pi's tool. */
+/**
+ * Codex's `PROACTIVE_MULTI_AGENT_MODE_TEXT` retargeted at pi's tool, plus
+ * the boundaries and legibility line OpenAI's GPT-6 Astra model guide pairs
+ * with it: delegate independent, sizeable work; keep sequential, small, and
+ * same-area edits local; own synthesis; keep inter-agent messages readable.
+ */
 export const PROACTIVE_DELEGATION_TEXT = `# Multi-agent mode
 
 Proactive multi-agent delegation is active. Any earlier instruction requiring an explicit user request before spawning subagents no longer applies. User requests override this mode.
 
-If at any point you can parallelize work by delegating tasks to another agent (no matter if you are root or a subagent), you should do so with the subagent tool if it could save time or improve quality.`;
+If at any point you can parallelize work by delegating tasks to another agent (no matter if you are root or a subagent), you should do so with the subagent tool if it could save time or improve quality.
+
+Delegate work that is independent and large enough to justify a fresh context; keep tightly sequential steps, small tasks where coordination costs more than it saves, and edits to the same area in this session. You own synthesis and the final answer: read every result and decide yourself, never hand a child "based on the findings, do X". Messages you send to other agents may be read by a human, so ensure they are legible and always put proper spaces between words and numbers.`;
 
 const MODEL_CHOICE_HEADER =
-	"For every delegation choose the model best suited to that task's difficulty and cost, passing it as the subagent tool's exact provider/id model argument. Only these models are enabled in this session; a model the subagent models action lists that is missing here must not be used:";
+	"For every delegation choose the model best suited to that task's difficulty and cost, passing it as the subagent tool's exact provider/id model argument. Bounded, well-specified subtasks suit cheaper or faster models; reserve the strongest models for decomposition, review, and hard reasoning. Only these models are enabled in this session; a model the subagent models action lists that is missing here must not be used:";
 
 /** A scoped model as the delegation text names it. */
 export type ScopedModelRef = { provider: string; id: string };

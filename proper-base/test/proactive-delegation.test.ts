@@ -38,6 +38,14 @@ test("rewrites both explicit-only sentences and appends the mode paragraph", () 
 	);
 	assert.ok(result.includes("- Use bash for file operations"));
 	assert.ok(result.endsWith(PROACTIVE_DELEGATION_TEXT));
+	for (const rule of [
+		"If at any point you can parallelize work",
+		"keep tightly sequential steps, small tasks",
+		"You own synthesis and the final answer",
+		"proper spaces between words and numbers",
+	]) {
+		assert.ok(result.includes(rule), rule);
+	}
 });
 
 test("scoped models are listed as the only delegation choices", () => {
