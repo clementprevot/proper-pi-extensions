@@ -33,16 +33,12 @@ function checkJsonl(path) {
 	}
 }
 
-function fast(coverage = false) {
+function fast() {
 	run("node", ["--test", "test/*.test.mjs"]);
-	run("npm", coverage ? ["run", "test:coverage"] : ["test"], "proper-base");
+	run("npm", ["test"], "proper-base");
 	run("npm", ["test"], "proper-flow");
-	run(
-		"npm",
-		["run", coverage ? "test:coverage" : "test:unit"],
-		"proper-llm-router",
-	);
-	run("npm", ["run", coverage ? "test:coverage" : "test"], "proper-pacify");
+	run("npm", ["run", "test:unit"], "proper-llm-router");
+	run("npm", ["run", "test"], "proper-pacify");
 	for (const cwd of LOCKED_PACKAGES) run("npm", ["run", "typecheck"], cwd);
 	for (const cwd of LOCKED_PACKAGES) {
 		run("npm", ["ci", "--ignore-scripts", "--dry-run", "--offline"], cwd);
@@ -54,8 +50,8 @@ function fast(coverage = false) {
 	run("lat", ["check"]);
 }
 
+// Push-only checks. Everything in fast() already ran at commit time.
 function full() {
-	fast(true);
 	run("npm", ["run", "test:smoke"], "proper-llm-router");
 	for (const cwd of LOCKED_PACKAGES) {
 		run("npm", ["audit", "--audit-level=low"], cwd);

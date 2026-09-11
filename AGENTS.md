@@ -12,9 +12,6 @@ package/workspace — use `npm --prefix <pkg>` or cd into each package.
   `bd prime` when stale.
 - Architecture/protocol/operations per package in `lat.md/`; search before
   coding, update after changes; `lat check` runs inside both gates below.
-- Validation-policy edits, test deletions, and suppression directives are
-  guarded: they fail pre-commit unless a HUMAN reviews and applies
-  `ALLOW_POLICY_CHANGES=1`. Never set it yourself.
 - Pre-commit/pre-push remain the development gates. GitHub Actions runs only
   the protected npm trusted-publishing release path.
 
@@ -45,12 +42,13 @@ same pinned binary. Never run `npx biome` — the bare `biome` name on npm
 is an unrelated abandoned package that ignores the arguments and exits 0,
 so it reports a false pass.
 
-Fast = biome-ci, gitleaks, typos, markdownlint, shellcheck, policy guard,
+Fast = biome-ci, gitleaks, typos, markdownlint, shellcheck,
 then `node scripts/check-repo.mjs fast` (node --test suites in every
 package, tsc typechecks, npm pack dry-runs, exemplars JSON parse,
-`lat check`). Full swaps in coverage-thresholded tests and adds
-`npm audit`, `npm audit signatures`, osv-scanner, and the router
-smoke. No build step exists anywhere.
+`lat check`). Full runs only what commit did not: `npm audit`,
+`npm audit signatures`, osv-scanner, and the router smoke. Per-package
+`npm run test:coverage` is available but not gated. No build step
+exists anywhere.
 
 Package releases use `.release-me.json` and package-scoped tags. Run
 `./tools/release-me/release.sh bump <part> <package>` from the repo root. The

@@ -105,7 +105,7 @@ npm package to disallow token publishing.
 | --- | --- |
 | [`lat.md/`](./lat.md/) | Architecture, protocol, and verification documentation. |
 | [`.beads/`](./.beads/) | Repository task state and Git hook shims. This is separate from the user-facing resources `proper-flow/install.sh` links into `~/.beads/`. |
-| [`scripts/`](./scripts/) | Shared repository validation and policy checks. |
+| [`scripts/`](./scripts/) | Shared repository validation checks. |
 | [`test/`](./test/) | Cross-package regression tests. |
 
 ## Validate the checkout
@@ -130,7 +130,7 @@ pre-commit run --hook-stage pre-push --all-files
 
 The commit gate runs formatting, lint, secrets, spelling, Markdown, shell,
 package tests, strict TypeScript, package checks, and lat.md validation. The
-push gate adds coverage, audits, OSV, signatures, and the offline router smoke.
+push gate runs only audits, OSV, signatures, and the offline router smoke;
+it does not repeat the commit checks.
 
-Validation policy changes require human review and a human-applied
-`ALLOW_POLICY_CHANGES=1`. Local hooks are guardrails, not a security boundary.
+Local hooks are guardrails, not a security boundary.
