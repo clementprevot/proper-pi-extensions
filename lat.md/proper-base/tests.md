@@ -220,7 +220,7 @@ It submits through the wrapped editor, captures the accepted user entry, and pre
 
 The proactive-delegation fixture verifies the policy rewrite touches only the two explicit-only sentences and stays inert where it does not apply.
 
-A system prompt carrying pi-subagents' guideline and advertised catalog must lose both `only when delegation is needed` sentences, keep the catalog's preflight instruction and unrelated guidelines, and end with the mode paragraph; a prompt without those sentences still gains the paragraph. An absent `subagent` tool or a prompt already carrying the paragraph must return `undefined`. `proactiveDelegation: false` in `proper-base.json` reads as disabled while a missing key, missing file, or damaged file reads as enabled.
+A system prompt carrying pi-subagents' guideline and advertised catalog must lose both `only when delegation is needed` sentences, keep the catalog's preflight instruction and unrelated guidelines, and end with the mode paragraph; a prompt without those sentences still gains the paragraph. Scoped models append as a deduplicated `provider/id` list under the enabled-only rule with the `llm-router` placeholder dropped, and a scope holding only the placeholder appends no list. An absent `subagent` tool or a prompt already carrying the paragraph must return `undefined`. `proactiveDelegation: false` in `proper-base.json` reads as disabled while a missing key, missing file, or damaged file reads as enabled.
 
 ## Questionnaire cancellation fixture
 

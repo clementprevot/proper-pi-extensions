@@ -38,7 +38,7 @@ The runtime is split by responsibility.
 - `src/recorder.ts` intercepts editor submission while preserving later handler assignments and repeated installation.
 - `src/session-list.ts` replaces pi's session listing with byte-prefix scans that read only what the `/resume` picker draws, and refills picker search text in the background.
 - `src/store.ts` owns project-key encoding, private JSONL appends, bounded tail reads, and compaction.
-- `src/proactive-delegation.ts` rewrites pi-subagents' explicit-request-only sentences in the system prompt and appends Codex's proactive multi-agent mode paragraph.
+- `src/proactive-delegation.ts` rewrites pi-subagents' explicit-request-only sentences in the system prompt and appends Codex's proactive multi-agent mode paragraph with the session's scoped models as the child model choices.
 - `src/transient-retry.ts` rewrites CLIProxyAPI transient stream errors into pi's retryable form.
 - `src/fast-mode.ts` scopes CLIProxyAPI's priority service tier into a session-only `/fast` and a live cross-session `/fast-global` by owning the final `service_tier` on outgoing requests.
 - `test/` uses built-in `node:test` against pure logic, real temporary files, and a small editor integration fixture; `tsconfig.json` and package-local dependencies provide no-emit diagnostics and pi-tui wrapping utilities, not a test framework or build step.
@@ -86,7 +86,7 @@ These rules preserve history and autocomplete details without destabilizing the 
 37. A `/model <reference> <level>` submission is taken over ahead of Pi only when the level names one of Pi's seven levels and the reference resolves inside the session's model scope; the model is applied before the level, because every model switch recomputes the level from settings. Any other shape, including an unresolvable reference, reaches Pi unchanged.
 38. The thinking-level menu opens from a Tab-accepted model name and from a hand-typed separator, never from Pi's own triggers, and only inside a single-line `/model` command whose argument already holds a `provider/id` reference; the level in effect leads the list so its default selection is a no-op.
 39. Fullscreen above-editor widgets render inside the transcript document with trailing blank rows dropped, the dock keeps only Pi's one spacer row, regular mode is untouched, and disposal restores the native dock.
-40. Proactive delegation changes the system prompt only when the `subagent` tool is selected for the turn, replaces exactly pi-subagents' two explicit-only sentences while leaving its preflight and safety guidance intact, appends the mode paragraph once, and is turned off by `proactiveDelegation: false`.
+40. Proactive delegation changes the system prompt only when the `subagent` tool is selected for the turn, replaces exactly pi-subagents' two explicit-only sentences while leaving its preflight and safety guidance intact, appends the mode paragraph once with the session's scoped models minus the `llm-router` placeholder as the only permitted child models, and is turned off by `proactiveDelegation: false`.
 
 ## Clipboard leak guard
 

@@ -40,6 +40,29 @@ test("rewrites both explicit-only sentences and appends the mode paragraph", () 
 	assert.ok(result.endsWith(PROACTIVE_DELEGATION_TEXT));
 });
 
+test("scoped models are listed as the only delegation choices", () => {
+	const result = applyProactiveDelegation("You are pi.", true, [
+		{ provider: "llm-router", id: "auto" },
+		{ provider: "cliproxyapi", id: "gpt-6-astra" },
+		{ provider: "cliproxyapi", id: "claude-opus-5" },
+		{ provider: "cliproxyapi", id: "gpt-6-astra" },
+	]);
+	assert.ok(result);
+	const tail = result.slice(result.indexOf(PROACTIVE_DELEGATION_TEXT));
+	assert.ok(tail.includes("Only these models are enabled in this session"));
+	assert.deepEqual(
+		tail.split("\n").filter((line) => line.startsWith("- ")),
+		["- cliproxyapi/gpt-6-astra", "- cliproxyapi/claude-opus-5"],
+	);
+	assert.ok(!tail.includes("llm-router"));
+	assert.equal(
+		applyProactiveDelegation("You are pi.", true, [
+			{ provider: "llm-router", id: "auto" },
+		]),
+		`You are pi.\n\n${PROACTIVE_DELEGATION_TEXT}`,
+	);
+});
+
 test("a prompt without the guideline still gains the paragraph", () => {
 	const result = applyProactiveDelegation("You are pi.", true);
 	assert.equal(result, `You are pi.\n\n${PROACTIVE_DELEGATION_TEXT}`);

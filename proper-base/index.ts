@@ -519,13 +519,14 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Proactive delegation]]
-	pi.on("before_agent_start", (event) => {
+	pi.on("before_agent_start", (event, ctx) => {
 		if (!readProactiveDelegationEnabled(getAgentDir())) return;
 		const tools =
 			event.systemPromptOptions?.selectedTools ?? pi.getActiveTools?.() ?? [];
 		const systemPrompt = applyProactiveDelegation(
 			event.systemPrompt,
 			tools.includes("subagent"),
+			ctx.scopedModels.map((scoped) => scoped.model),
 		);
 		if (systemPrompt !== undefined) return { systemPrompt };
 	});
