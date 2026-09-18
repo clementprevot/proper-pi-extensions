@@ -32,6 +32,9 @@ const RAINBOW = [
 ] as const;
 const ANIMATION_INTERVAL_MS = 120;
 const HIGHLIGHT_CYCLE_MS = 4000;
+// Upper bound on how long cached footer lines may survive an input we cannot
+// observe (git branch switches, ctx.ui.setStatus from another extension).
+const BASE_CACHE_TTL_MS = 1000;
 const USAGE_THROUGH_COST =
 	/^((?:(?:↑|↓|R|W|CH)\S+\s+)*\$\S+(?:\s+\(sub\))?)(?:\s+|$)/;
 const USAGE_FIELD =
@@ -104,6 +107,9 @@ export function installFooterColors(
 		uninstall() {
 			if (footer[INSTALLED] !== controller) return;
 			stopAnimation();
+			baseCache.clear();
+			baseKey = undefined;
+			baseTheme = undefined;
 			if (ownsRender) footer.render = render;
 			else Reflect.deleteProperty(footer, "render");
 			if (dispose) footer.dispose = dispose;
@@ -111,20 +117,66 @@ export function installFooterColors(
 			delete footer[INSTALLED];
 		},
 	};
+	// Pi's FooterComponent.render() sums usage over every session entry, and
+	// SessionManager.getEntries() allocates a fresh array per call, so a single
+	// frame costs O(session entries). layoutFooter needs a second render at a
+	// wider width, doubling that. Pi's footer output has no time-dependent part,
+	// so cache the raw lines per width and drop them whenever a visible input
+	// changes. getLeafId() is O(1) and moves on every appended entry, which is
+	// what the usage totals are derived from.
+	const baseCache = new Map<number, string[]>();
+	let baseKey: string | undefined;
+	let baseTheme: FooterTheme | undefined;
+	let baseAt = 0;
+	const baseLines = (
+		at: number,
+		key: string,
+		theme: FooterTheme,
+		now: number,
+	): string[] => {
+		if (
+			key !== baseKey ||
+			theme !== baseTheme ||
+			now - baseAt > BASE_CACHE_TTL_MS
+		) {
+			baseCache.clear();
+			baseKey = key;
+			baseTheme = theme;
+			baseAt = now;
+		}
+		let lines = baseCache.get(at);
+		if (!lines) {
+			lines = render.call(footer, at);
+			baseCache.set(at, lines);
+		}
+		return lines;
+	};
+
 	footer.render = (width: number) => {
 		const level = state.ctx.thinkingLevel as FooterThinkingLevel;
 		if (level === "max" || level === "ultra") startAnimation();
 		else stopAnimation();
 		const theme = state.ctx.ui.theme;
 		const model = state.ctx.model?.id;
+		const isFast = model ? state.fast?.() === true : false;
+		const now = Date.now();
+		// A host without getLeafId() only loses entry-driven invalidation; the
+		// TTL still bounds staleness. Never let a footer cache key crash render.
+		const leafId =
+			typeof state.ctx.sessionManager?.getLeafId === "function"
+				? (state.ctx.sessionManager.getLeafId() ?? "")
+				: "";
+		const key = `${leafId}\u0000${model ?? ""}\u0000${level}\u0000${
+			isFast ? "1" : "0"
+		}`;
 		const base = (at: number) => {
-			const lines = render.call(footer, at);
-			return model && state.fast?.() ? tagFast(lines, at, model, theme) : lines;
+			const lines = baseLines(at, key, theme, now);
+			return model && isFast ? tagFast(lines, at, model, theme) : lines;
 		};
 		return colorFooter(layoutFooter(base(width), width, theme, base), {
 			level,
 			model,
-			now: Date.now(),
+			now,
 			theme,
 		});
 	};

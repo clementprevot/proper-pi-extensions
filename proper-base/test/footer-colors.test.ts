@@ -94,6 +94,12 @@ test("footer layout, colors, and shutdown restoration stay composed", async () =
 		sessionManager: {
 			getBranch: () => [],
 			getSessionFile: () => undefined,
+			// Footer colors memoize pi's O(session entries) render against the leaf
+			// id. Context usage derives from the latest assistant usage, so in a
+			// real session it only moves when an entry is appended, a compaction
+			// runs, or the branch changes, all of which move the leaf. Mirror that
+			// here so the stub cannot express a state pi could never produce.
+			getLeafId: () => `leaf-${contextPercent}`,
 		},
 		ui: {
 			getEditorComponent: () => () => editor,
@@ -270,6 +276,7 @@ test("footer layout reclaims usage width so model tags survive", async () => {
 		sessionManager: {
 			getBranch: () => [],
 			getSessionFile: () => undefined,
+			getLeafId: () => "leaf",
 		},
 		ui: {
 			getEditorComponent: () => () => editor,
@@ -378,7 +385,11 @@ test("footer shows the fast chip for session-scoped Fast", async () => {
 		cwd,
 		model: { provider: "cliproxyapi", id: "gpt-6-astra" },
 		thinkingLevel: "xhigh",
-		sessionManager: { getBranch: () => [], getSessionFile: () => undefined },
+		sessionManager: {
+			getBranch: () => [],
+			getSessionFile: () => undefined,
+			getLeafId: () => "leaf",
+		},
 		ui: {
 			getEditorComponent: () => () => editor,
 			setEditorComponent: (factory: typeof installedFactory) => {
@@ -432,5 +443,112 @@ test("footer shows the fast chip for session-scoped Fast", async () => {
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		await rm(cwd, { recursive: true, force: true });
 		await rm(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("footer memoizes pi's per-frame session scan until the leaf moves", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "proper-base-footer-cache-"));
+	type SessionHandler = (event: unknown, ctx: any) => void | Promise<void>;
+	let onSessionStart: SessionHandler | undefined;
+	let installedFactory:
+		| ((tui: any, theme: any, keybindings: any) => any)
+		| undefined;
+
+	properBase({
+		on(event: string, handler: SessionHandler) {
+			if (event === "session_start") onSessionStart = handler;
+		},
+		getCommands: () => [],
+	} as unknown as Parameters<typeof properBase>[0]);
+
+	const statsLeft =
+		"\u219110M \u2193261K R114M W2M CH99.5% $115.997 55.5%/1.0M (auto)";
+	const right = "gpt-5.6-sol \u2022 xhigh";
+	// Stands in for pi's FooterComponent.render(), which sums usage across every
+	// session entry and allocates a fresh getEntries() array on each call.
+	let scans = 0;
+	class FooterComponent {
+		render(width: number) {
+			scans++;
+			const pad = " ".repeat(
+				Math.max(1, width - statsLeft.length - right.length),
+			);
+			return ["~/work/scribe (main)", `${statsLeft}${pad}${right}`];
+		}
+		invalidate() {}
+		dispose() {}
+	}
+
+	const footer = new FooterComponent();
+	const editor = {
+		onSubmit: undefined,
+		addToHistory() {},
+		render: () => ["editor"],
+	};
+	const tui = {
+		children: [{ children: [editor] }, { children: [footer] }],
+		requestRender() {},
+		terminal: { rows: 24 },
+		showOverlay() {
+			return { hide() {} };
+		},
+	};
+	const theme = {
+		fg: (_name: string, text: string) => text,
+		getThinkingBorderColor: () => (text: string) => text,
+		getFgAnsi: () => "",
+	};
+	let leafId = "leaf-1";
+	const ctx = {
+		cwd,
+		model: { id: "gpt-5.6-sol" },
+		thinkingLevel: "xhigh",
+		sessionManager: {
+			getBranch: () => [],
+			getSessionFile: () => undefined,
+			getLeafId: () => leafId,
+		},
+		ui: {
+			getEditorComponent: () => () => editor,
+			setEditorComponent: (factory: typeof installedFactory) => {
+				installedFactory = factory;
+			},
+			theme,
+		},
+	};
+
+	try {
+		await onSessionStart?.({}, ctx);
+		installedFactory?.(
+			tui,
+			{
+				borderColor: (text: string) => text,
+				selectList: { description: (text: string) => text },
+			},
+			new KeybindingsManager(),
+		);
+
+		const first = footer.render(100).map(stripTerminalSequences);
+		const afterFirst = scans;
+		assert.ok(afterFirst > 0);
+
+		// Every keystroke re-renders the footer. Pi's scan must not run again
+		// while the session leaf, model, thinking level, and width all hold.
+		assert.deepEqual(footer.render(100).map(stripTerminalSequences), first);
+		assert.deepEqual(footer.render(100).map(stripTerminalSequences), first);
+		assert.equal(scans, afterFirst);
+
+		// A resize is a new width, so the cached lines must not be reused.
+		footer.render(90);
+		assert.ok(scans > afterFirst);
+
+		// Appending an entry moves the leaf, so totals must be recomputed.
+		const afterResize = scans;
+		leafId = "leaf-2";
+		footer.render(100);
+		assert.ok(scans > afterResize);
+	} finally {
+		footer.dispose();
+		await rm(cwd, { recursive: true, force: true });
 	}
 });

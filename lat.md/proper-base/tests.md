@@ -210,6 +210,8 @@ A second fixture models pi's width-sensitive native render, which silently drops
 
 A third fixture loads proper-base against a temporary agent directory whose catalog marks the model capable, submits `/fast` through the installed editor, and proves the model row gains the warning-colored `fast` tag at the original width with a repaint requested, that a provider row already carrying the tag is not doubled, and that a second `/fast` removes it.
 
+A fourth fixture counts how often pi's native footer render runs behind the decoration. It proves repeated renders at one width reuse the memoized lines and produce identical output without scanning the session again, that a new width still renders because the cached lines cannot be reused across widths, and that moving the session leaf id recomputes the totals. The first fixture's stub derives its leaf id from the context percentage, mirroring the real invariant that context usage cannot move without an appended entry, compaction, or branch change.
+
 ## Early cancellation fixture
 
 A session integration fixture verifies editable recovery of an unprocessed cancelled prompt.

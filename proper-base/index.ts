@@ -301,6 +301,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	let removeFooterColors: (() => void) | undefined;
+	// ctx.ui.addAutocompleteProvider() returns void and stacks permanently, so
+	// re-registering on every session_start would leave one live provider per
+	// session load. Register the model sort exactly once.
+	let autocompleteInstalled = false;
 	let removeJumpToBottom: (() => void) | undefined;
 	let removePromptJump: (() => void) | undefined;
 	let settings: SettingsController | undefined;
@@ -724,9 +728,12 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setEditorText(promptText);
 			return undefined;
 		});
-		ctx.ui.addAutocompleteProvider?.((current) =>
-			sortModelAutocompleteDescending(current, () => pi.getThinkingLevel?.()),
-		);
+		if (!autocompleteInstalled) {
+			autocompleteInstalled = true;
+			ctx.ui.addAutocompleteProvider?.((current) =>
+				sortModelAutocompleteDescending(current, () => pi.getThinkingLevel?.()),
+			);
+		}
 
 		const store = storePath(getAgentDir(), ctx.cwd);
 		compactIfNeeded(store);
