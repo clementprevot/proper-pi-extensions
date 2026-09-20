@@ -1599,7 +1599,13 @@ export default function (pi: ExtensionAPI) {
 			process.env.PI_SUBAGENT_FANOUT_CHILD !== "1"
 		)
 			return;
-		return { systemPrompt: `${event.systemPrompt}\n\n${SENTINEL_HELP}` };
+		const options = event.systemPromptOptions;
+		if (options.forceSystemPrompt !== undefined) {
+			// Honor a prior opaque replacement without creating one ourselves.
+			options.forceSystemPrompt += `\n\n${SENTINEL_HELP}`;
+		} else {
+			options.sections.proper_llm_router = SENTINEL_HELP;
+		}
 	});
 
 	// Route the FIRST input of a session — typed prompt or slash command —

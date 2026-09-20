@@ -128,7 +128,7 @@ A loaded conversation retains its restored model despite `reason: "startup"`; an
 
 The routing switch fixture verifies the global config flag and the per-session environment override through the real menu handler and event hooks.
 
-It disables routing from an armed session and requires the first menu entry to be the global switch, the file to store `enabled: false`, the session to move to the fallback, startup to stop forcing `llm-router/auto`, and sentinel help to disappear. It then enables routing for the session and requires `LLM_ROUTER_ON=1`, the file still disabled, the session re-armed, and startup and sentinel help active again. Finally it clears the session override and re-enables globally, requiring the session entry to disappear.
+It disables routing from an armed session and requires the first menu entry to be the global switch, the file to store `enabled: false`, the session to move to the fallback, startup to stop forcing `llm-router/auto`, and sentinel help to disappear. It then enables routing for the session and requires `LLM_ROUTER_ON=1`, the file still disabled, the session re-armed, and startup and sentinel help active again. The enabled hook writes sentinel guidance into a structured section without returning a full prompt or setting `forceSystemPrompt`. A pre-existing opaque replacement keeps its text and receives the guidance directly. Finally it clears the session override and re-enables globally, requiring the session entry to disappear.
 
 ## Ultra compatibility fixtures
 

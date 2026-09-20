@@ -20,7 +20,7 @@ It also asserts that the operative contract and the prompt travel in the user tu
 
 The fixture drives envelope parsing directly, with no model call.
 
-It asserts that a well-formed envelope yields the trimmed rewrite, and that verbatim replies recorded from two provider-injected agent identities are rejected, including a bare tool call and a refusal. It also asserts that an envelope alone is insufficient: an over-long body and a blank body both raise `PacifyError`, which fails open to the original prompt.
+It asserts that a well-formed envelope removes all excess formatting boundary lines, including multiple LF and CRLF lines, while preserving the rewrite's indentation and the input's own boundary lines, and that verbatim replies recorded from two provider-injected agent identities are rejected, including a bare tool call and a refusal. It also asserts that an envelope alone is insufficient: an over-long, blank, or whitespace-only body raises `PacifyError`, which fails open to the original prompt.
 
 ## Scheduled automatic mode fixture
 
@@ -50,7 +50,7 @@ It asserts that input beginning with either bypass command reaches dispatch untr
 
 The fixture invokes Pi's actual AgentSession prompt dispatch and ExtensionRunner, with a foreign extension registered first.
 
-Registered commands and input handlers receive rewritten arguments exactly once. Images, bare commands and acknowledgements survive; explicit `/pacify` and `/unpacify` also work when their output invokes a registered foreign command.
+Registered commands and input handlers receive rewritten arguments exactly once. Images, bare commands and acknowledgements survive; explicit `/pacify` and `/unpacify` also work when their output invokes a registered foreign command. A concurrent idle RPC-prompt regression holds the first rewrite through native admission and proves the second rejects before a second completion or original-entry append. Registered foreign commands can synchronously submit nested prompts and remain callable during streaming. Native rejection reports one failed preflight and frees admission, while shutdown releases waiting callers without a second rewrite even if the first transport ignores abort.
 
 ## Extension flow
 
@@ -82,9 +82,9 @@ An isolated source-copy fixture uses the host loader's bundled-mode jiti configu
 
 ## Queued identity and cancellation fixture
 
-The fixture queues identical rewritten text through actual host steering and follow-up dispatch, then restores their distinct originals after reload.
+The fixture makes direct `AgentSession.steer` and `followUp` calls before any prompt dispatch, then restores their distinct originals after reload. It proves those RPC queue paths rewrite before foreign input handlers and retain exact diff origins.
 
-Shutdown aborts an in-flight rewrite and suppresses its late result even if the transport ignores cancellation. No queued message is sent after ownership ends.
+Shutdown aborts an in-flight rewrite and suppresses its late result even if the transport ignores cancellation. No queued message is sent after ownership ends. The shared-host fixture in [[proper-base/tests#Verification#Cross-package dispatch fixture]] checks both package load orders and both shutdown orders across repeated reloads.
 
 ## Transcript entry fixture
 

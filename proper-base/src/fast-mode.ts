@@ -61,6 +61,11 @@ export function isFastToggle(text: string): boolean {
 export class FastOverlay {
 	private sessionEnabled = false;
 	private modelsCache: { mtimeMs: number; ids: Set<string> } | undefined;
+	private display:
+		| { provider: string; global: boolean; ids: Set<string> }
+		| undefined;
+	private displayTimer: ReturnType<typeof setInterval> | undefined;
+	private displayChanged: (() => void) | undefined;
 	private readonly agentDir: string;
 	private readonly env: Record<string, string | undefined>;
 
@@ -119,6 +124,7 @@ export class FastOverlay {
 			`${JSON.stringify({ ...existing, fast: next }, null, 2)}\n`,
 			"utf8",
 		);
+		this.refreshDisplay();
 		return next;
 	}
 
@@ -135,13 +141,17 @@ export class FastOverlay {
 	/** Whether the provider's cached catalog marks this model Fast-capable. */
 	supportsModel(model: FastModel | undefined): boolean {
 		if (!model || model.provider !== this.providerId()) return false;
+		return this.fastModelIds().has(model.id);
+	}
+
+	private fastModelIds(): Set<string> {
 		const path = join(this.agentDir, MODELS_CACHE_FILE_NAME);
 		let mtimeMs: number;
 		try {
 			mtimeMs = statSync(path).mtimeMs;
 		} catch {
 			this.modelsCache = undefined;
-			return false;
+			return new Set();
 		}
 		if (this.modelsCache?.mtimeMs !== mtimeMs) {
 			const ids = readJsonObject(path)?.fastModelIds;
@@ -154,7 +164,54 @@ export class FastOverlay {
 				),
 			};
 		}
-		return this.modelsCache.ids.has(model.id);
+		return this.modelsCache.ids;
+	}
+
+	/** Refresh outside rendering; request-time reads remain uncached. */
+	startDisplayRefresh(onChange: () => void): void {
+		this.stopDisplayRefresh();
+		this.displayChanged = onChange;
+		this.refreshDisplay();
+		this.displayTimer = setInterval(() => this.refreshDisplay(), 1000);
+		this.displayTimer.unref?.();
+	}
+
+	stopDisplayRefresh(): void {
+		clearInterval(this.displayTimer);
+		this.displayTimer = undefined;
+		this.displayChanged = undefined;
+		this.display = undefined;
+	}
+
+	private refreshDisplay(): void {
+		if (!this.displayChanged) return;
+		const next = {
+			provider: this.providerId(),
+			global: this.isGlobalEnabled(),
+			ids: this.fastModelIds(),
+		};
+		const previous = this.display;
+		this.display = next;
+		if (
+			!previous ||
+			previous.provider !== next.provider ||
+			previous.global !== next.global ||
+			previous.ids.size !== next.ids.size ||
+			[...next.ids].some((id) => !previous.ids.has(id))
+		) {
+			this.displayChanged();
+		}
+	}
+
+	/** In-memory only: safe on every animation frame and keypress. */
+	isEffectiveForDisplay(model: FastModel | undefined): boolean {
+		return !!(
+			model &&
+			this.display &&
+			model.provider === this.display.provider &&
+			(this.sessionEnabled || this.display.global) &&
+			this.display.ids.has(model.id)
+		);
 	}
 
 	/** Whether requests for this model currently carry the priority tier. */

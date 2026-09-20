@@ -149,6 +149,36 @@ test("oversized bodies truncate and the combined budget drops the oldest", () =>
 	assert.doesNotMatch(restored, /<skill name="first"/);
 });
 
+test("restoration budgets complete blocks in latest invocation order", () => {
+	const messages: Message[] = [
+		{ role: "compactionSummary", content: [] },
+		user("keep going"),
+	];
+	const branch = [
+		user(skillText("a", "old a")),
+		user(skillText("b", "b".repeat(20000))),
+		user(skillText("a", "new a ".repeat(4000))),
+	].map(entry);
+	const restored = textOf(pinSkillContext(messages, branch)[1]);
+	assert.match(restored, /<skill name="a"/);
+	assert.doesNotMatch(restored, /<skill name="b"/);
+	assert.match(restored, /new a/);
+	assert.match(restored, /truncated[\s\S]*<\/skill>\n\nkeep going$/);
+	assert.ok(restored.length <= 24000 + "keep going".length);
+
+	const exact = textOf(
+		pinSkillContext(messages, [
+			entry(user(skillText("one", "x".repeat(11900)))),
+			entry(user(skillText("two", "y".repeat(11900)))),
+		])[1],
+	);
+	assert.ok(exact.length <= 24000 + "keep going".length);
+	assert.equal(
+		exact.match(/<skill /g)?.length,
+		exact.match(/<\/skill>/g)?.length,
+	);
+});
+
 test("string message content is handled like part arrays", () => {
 	const repeat: Message[] = [
 		{ role: "user", content: skillText("audit", "Body one.", "first") },

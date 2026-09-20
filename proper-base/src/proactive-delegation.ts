@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { NormalizedBuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
+import { appendPromptSection } from "./prompt-sections.ts";
 
 /**
  * Codex switches GPT-6 Astra into `MultiAgentMode::Proactive` at the Ultra
@@ -40,12 +42,12 @@ If at any point you can parallelize work by delegating tasks to another agent (n
 Delegate work that is independent and large enough to justify a fresh context; keep tightly sequential steps, small tasks where coordination costs more than it saves, and edits to the same area in this session. You own synthesis and the final answer: read every result and decide yourself, never hand a child "based on the findings, do X". Messages you send to other agents may be read by a human, so ensure they are legible and always put proper spaces between words and numbers.`;
 
 const MODEL_CHOICE_HEADER =
-	"For every delegation choose the model best suited to that task's difficulty and cost, passing it as the subagent tool's exact provider/id model argument. Bounded, well-specified subtasks suit cheaper or faster models; reserve the strongest models for decomposition, review, and hard reasoning. Only these models are enabled in this session; a model the subagent models action lists that is missing here must not be used:";
+	"For every delegation choose the model best suited to that task's difficulty and cost, passing it as the subagent tool's exact provider/id model argument. If an active routing extension advertises a task-text override, include that override as well; model= alone does not pin a routed child. Bounded, well-specified subtasks suit cheaper or faster models; reserve the strongest models for decomposition, review, and hard reasoning. Only these models are enabled in this session; a model the subagent models action lists that is missing here must not be used:";
 
 /** A scoped model as the delegation text names it. */
 export type ScopedModelRef = { provider: string; id: string };
 
-/** proper-llm-router's placeholder routes the parent, never a child. */
+/** The placeholder is a routing entry point, not a concrete model choice. */
 const PLACEHOLDER_PROVIDER = "llm-router";
 
 function modelChoiceText(models: readonly ScopedModelRef[]): string {
@@ -72,20 +74,37 @@ export function readProactiveDelegationEnabled(agentDir: string): boolean {
 	}
 }
 
-/**
- * The rewritten system prompt, or `undefined` when nothing changes: the
- * subagent tool is absent, the mode is off, or the paragraph is already in.
- */
+/** Change policy in its structured fields, preserving later contributions. */
 export function applyProactiveDelegation(
-	systemPrompt: string,
+	options: NormalizedBuildSystemPromptOptions,
 	hasSubagentTool: boolean,
 	scopedModels: readonly ScopedModelRef[] = [],
-): string | undefined {
-	if (!hasSubagentTool || systemPrompt.includes(PROACTIVE_DELEGATION_TEXT)) {
-		return undefined;
+): void {
+	if (
+		!hasSubagentTool ||
+		options.sections.proper_base_delegation ||
+		options.forceSystemPrompt?.includes(PROACTIVE_DELEGATION_TEXT)
+	)
+		return;
+	const rewrite = (text: string) =>
+		text
+			.replace(CATALOG_SENTENCE, PROACTIVE_CATALOG_SENTENCE)
+			.replace(GUIDELINE, PROACTIVE_GUIDELINE);
+	options.promptGuidelines = options.promptGuidelines.map(rewrite);
+	for (const [name, rules] of Object.entries(options.toolGuidelines)) {
+		options.toolGuidelines[name] = rules.map(rewrite);
 	}
-	const rewritten = systemPrompt
-		.replace(CATALOG_SENTENCE, PROACTIVE_CATALOG_SENTENCE)
-		.replace(GUIDELINE, PROACTIVE_GUIDELINE);
-	return `${rewritten}\n\n${PROACTIVE_DELEGATION_TEXT}${modelChoiceText(scopedModels)}`;
+	for (const [name, text] of Object.entries(options.sections)) {
+		options.sections[name] = rewrite(text);
+	}
+	if (options.customPrompt !== undefined)
+		options.customPrompt = rewrite(options.customPrompt);
+	options.appendSystemPrompt = rewrite(options.appendSystemPrompt);
+	if (options.forceSystemPrompt !== undefined)
+		options.forceSystemPrompt = rewrite(options.forceSystemPrompt);
+	appendPromptSection(
+		options,
+		"proper_base_delegation",
+		`${PROACTIVE_DELEGATION_TEXT}${modelChoiceText(scopedModels)}`,
+	);
 }

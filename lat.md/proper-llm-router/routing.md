@@ -103,4 +103,6 @@ Each pi-subagents child loads the extension and receives a fresh routing decisio
 
 Startup forcing replaces the model chosen by the spawner, so `runs.run(..., { model })` is not a reliable override. The sentinel is carried in task text, survives child creation, is removed before generation, and remains subject to quota swapping.
 
-Before the agent starts, the extension adds sentinel instructions to orchestrating sessions. It omits the suffix in leaf children that cannot spawn more agents, but keeps it in fanout children.
+Before the agent starts, the extension adds sentinel instructions to orchestrating sessions through `systemPromptOptions.sections.proper_llm_router`, not a full prompt replacement. Later structured contributions therefore remain effective. A prior opaque `forceSystemPrompt` stays explicit and receives the instructions directly, without restoring excluded defaults. Leaf children that cannot spawn more agents omit these instructions; fanout children keep them.
+
+proper-base's delegation guidance requires an advertised task-text override alongside its chosen model argument. The router owns the sentinel syntax and enabled-state decision; base does not guess routing activity from the registered placeholder or selected model, so either extension load order works.

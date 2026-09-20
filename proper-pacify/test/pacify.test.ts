@@ -224,7 +224,19 @@ test("an answered prompt is rejected instead of becoming the user's prompt", asy
 	);
 	assert.equal(
 		parseRewrite("\n<rewrite>\n keep this \n</rewrite>\n", sent),
-		"keep this",
+		" keep this ",
+	);
+	assert.equal(parseRewrite("<rewrite>\n\ntext\n\n</rewrite>", "text"), "text");
+	const lines = "\r\n\r\n    indented text\r\n";
+	assert.equal(
+		parseRewrite(`<rewrite>\r\n\r\n${lines}\r\n\r\n</rewrite>`, lines),
+		lines,
+	);
+	const spaced = "  keep this indented\n    and keep this trailing  \n";
+	assert.equal(parseRewrite(`<rewrite>${spaced}</rewrite>`, spaced), spaced);
+	assert.equal(
+		parseRewrite(`<rewrite>\n${spaced}\n</rewrite>`, spaced),
+		spaced,
 	);
 
 	// Verbatim replies recorded from cliproxyapi/claude-sonnet-5 and
@@ -251,6 +263,10 @@ test("an answered prompt is rejected instead of becoming the user's prompt", asy
 	);
 	assert.throws(
 		() => parseRewrite("<rewrite>   </rewrite>", sent),
+		PacifyError,
+	);
+	assert.throws(
+		() => parseRewrite("<rewrite>\n\t </rewrite>", sent),
 		PacifyError,
 	);
 });
@@ -950,17 +966,24 @@ test("diffs use message identity, survive metadata and reload, and avoid render-
 });
 
 // @lat: [[proper-pacify/tests#Verification#Queued identity and cancellation fixture]]
-test("queued identical rewrites retain identity and unload cancels in-flight work", async () => {
+test("direct queued rewrites retain identity and unload cancels in-flight work", async () => {
 	saveConfig({ ...DEFAULTS, model: "test/rewrite", auto: true });
 	const host = createHostFixture(properPacify);
 	await host.start();
 	host.session._isAgentRunActive = true;
-	await host.session.prompt("fix the stupid parser now", {
-		streamingBehavior: "steer",
+	// These are the first host calls: RPC uses these direct APIs rather than
+	// prompt(..., { streamingBehavior }), so they must install the adapters too.
+	await host.session.steer("fix the stupid parser now", undefined, {
+		source: "rpc",
 	});
-	await host.session.prompt("fix the garbage parser now", {
-		streamingBehavior: "followUp",
+	await host.session.followUp("fix the garbage parser now", undefined, {
+		source: "rpc",
 	});
+	assert.deepEqual(host.foreignSeen, [
+		"fix the parser now",
+		"fix the parser now",
+	]);
+	assert.equal(host.completions.length, 2);
 	assert.equal(host.queued.length, 2);
 	for (const message of host.queued) host.manager.appendMessage(message);
 	await host.reload();
@@ -999,6 +1022,151 @@ test("queued identical rewrites retain identity and unload cancels in-flight wor
 	finish(reply("this must never reach dispatch"));
 	await pending;
 	assert.equal(host.queued.length, 2, "no late message after shutdown");
+});
+
+test("registered commands can submit nested prompts without holding admission", async () => {
+	saveConfig({ ...DEFAULTS, model: "test/rewrite", auto: true });
+	const host = createHostFixture(properPacify);
+	await host.start();
+	try {
+		host.commands.set("nested", {
+			name: "nested",
+			handler: async () => {
+				await host.session.prompt("nested prompt needs rewriting", {
+					source: "extension",
+				});
+			},
+		});
+		await host.session.prompt("/nested fix this awful parser");
+		assert.equal(host.sent.length, 1);
+		assert.equal(host.foreignSeen.at(-1), "fix the parser now");
+		host.session._isAgentRunActive = true;
+		await host.session.prompt("/foreign fix this awful parser");
+		assert.equal(
+			host.commandsSeen.at(-1),
+			"fix the parser now",
+			"commands remain usable during streaming",
+		);
+	} finally {
+		await host.shutdown();
+	}
+});
+
+test("shutdown releases waiting admissions even when the rewrite ignores abort", async () => {
+	saveConfig({ ...DEFAULTS, model: "test/rewrite", auto: true });
+	const host = createHostFixture(properPacify);
+	await host.start();
+	let finish!: (value: ModelReply) => void;
+	let entered!: () => void;
+	const started = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	let completions = 0;
+	host.registry.complete = () => {
+		completions++;
+		entered();
+		return new Promise<ModelReply>((resolve) => {
+			finish = resolve;
+		});
+	};
+	const callbacks: boolean[] = [];
+	const first = host.session.prompt("first pending rewrite task");
+	await started;
+	const waiting = host.session.prompt("second pending rewrite task", {
+		preflightResult: (accepted: boolean) => callbacks.push(accepted),
+	});
+	await host.shutdown();
+	await waiting;
+	assert.equal(completions, 1);
+	assert.deepEqual(callbacks, [true]);
+	finish(reply("late result ignored"));
+	await first;
+	assert.equal(host.sent.length, 0);
+});
+
+test("native rejection reports preflight once and frees admission", async () => {
+	saveConfig({ ...DEFAULTS, model: "test/rewrite", auto: false });
+	const host = createHostFixture(properPacify);
+	await host.start();
+	try {
+		const model = host.agent.state.model;
+		host.agent.state.model = undefined;
+		const callbacks: boolean[] = [];
+		await assert.rejects(
+			host.session.prompt("reject this missing model", {
+				preflightResult: (accepted: boolean) => callbacks.push(accepted),
+			}),
+			/model/i,
+		);
+		assert.deepEqual(callbacks, [false]);
+		host.agent.state.model = model;
+		await host.session.prompt("accept after rejected preflight");
+		assert.equal(host.sent.length, 1);
+	} finally {
+		await host.shutdown();
+	}
+});
+
+test("concurrent idle prompts admit one rewrite before the next is rejected", async () => {
+	saveConfig({ ...DEFAULTS, model: "test/rewrite", auto: true });
+	const host = createHostFixture(properPacify);
+	await host.start();
+	try {
+		let release!: (value: ModelReply) => void;
+		let completionCount = 0;
+		let entered!: () => void;
+		const started = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		host.registry.complete = () => {
+			completionCount++;
+			entered();
+			return new Promise<ModelReply>((resolve) => {
+				release = resolve;
+			});
+		};
+		let finishAgent!: () => void;
+		let enteredAgent!: () => void;
+		const agentStarted = new Promise<void>((resolve) => {
+			enteredAgent = resolve;
+		});
+		const promptAgent = host.agent.prompt;
+		host.agent.prompt = async (messages: any[]) => {
+			await promptAgent(messages);
+			host.session._isAgentRunActive = true;
+			enteredAgent();
+			await new Promise<void>((resolve) => {
+				finishAgent = () => {
+					host.session._isAgentRunActive = false;
+					resolve();
+				};
+			});
+		};
+		const first = host.session.prompt("fix this stupid parser now", {
+			source: "rpc",
+		});
+		await started;
+		const customBeforeSecond = host.manager
+			.getEntries()
+			.filter((entry: any) => entry.type === "custom").length;
+		const second = host.session.prompt("fix this garbage parser now", {
+			source: "rpc",
+		});
+		release(reply("fix this parser now"));
+		await agentStarted;
+		await assert.rejects(second, /Agent is already processing/);
+		finishAgent();
+		await first;
+		assert.equal(completionCount, 1, "the rejected prompt was not rewritten");
+		assert.equal(
+			host.manager.getEntries().filter((entry: any) => entry.type === "custom")
+				.length,
+			customBeforeSecond + 1,
+			"only the admitted prompt's persisted link was added",
+		);
+	} finally {
+		await host.shutdown();
+	}
 });
 
 // @lat: [[proper-pacify/tests#Verification#Transcript entry fixture]]

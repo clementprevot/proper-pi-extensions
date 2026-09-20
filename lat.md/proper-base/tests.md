@@ -92,13 +92,19 @@ It supplies user and tool-result images on both sides of a newer user message. E
 
 A focused fixture verifies invoked skills stay present once in outbound context and survive compaction.
 
-It asserts a repeated identical body keeps the first message by reference, so the cached request prefix cannot shift, while the later message retains its request beside an already-loaded note. A changed body returns the context unmodified, proving different arguments still reach the model. A compacted context holding only a summary and a follow-up turn regains the dropped bodies on the first user turn after the summary, in invocation order, without inserting a message; a skill still present is not carried a second time, and a branch with no summary is left alone. Oversized bodies truncate, the combined ceiling drops the oldest, plain transcripts return by reference, and repeated runs over one input are byte-identical.
+It asserts a repeated identical body keeps the first message by reference, so the cached request prefix cannot shift, while the later message retains its request beside an already-loaded note. A changed body returns the context unmodified, proving different arguments still reach the model. A compacted context holding only a summary and a follow-up turn regains the dropped bodies on the first user turn after the summary, in invocation order, without inserting a message; a skill still present is not carried a second time, and a branch with no summary is left alone. Oversized bodies truncate with intact tags, the 24,000-character combined ceiling includes separators and drops older invocations, plain transcripts return by reference, and repeated runs over one input are byte-identical. An A, B, A sequence proves replacing A refreshes its priority: the latest A survives a budget that excludes B.
 
 ## Prompt display fixture
 
 A focused fixture verifies prompt-template expansion remains model-facing rather than user-facing.
 
-It queues a plain prompt and `/implement-ready epic-1 4`, then supplies the expanded template body as Pi's user message. The display transformer leaves plain text unchanged, replaces both exact and whitespace-normalized expanded Markdown with the raw slash command, and drains one persistence record containing a hash plus raw command but not the template body. Restoring that custom-entry record reproduces the display mapping after reload, while clearing it restores native text.
+The fixture invokes real Pi prompt dispatch, input handlers, expansion, and user-text extraction with transport stubbed. Handled and model-rejected submissions cannot relabel the next prompt. Direct steering, follow-ups, and queued prompts with identical expanded bodies retain separate raw invocations while plain identical text stays unchanged. Concurrent transformations finishing out of order retain identity, undelivered queue entries produce no records, and reload restores entry-ID links before session_start. Disposal restores native display; legacy hashes, foreign-branch IDs, and copied message objects cannot relabel a message.
+
+## Cross-package dispatch fixture
+
+The root fixture loads both packages against one virtual Pi host and checks submission identity and teardown in every load and shutdown order.
+
+Prompt, direct steer, direct follow-up, and streaming prompt calls must display the original template invocation while model-facing text and Pacify origins remain correct. Three reload cycles restore exact prototype and instance descriptors, including inherited methods, without accumulating inactive wrappers. A source-equality assertion keeps the separately shipped versioned interop helpers identical.
 
 ## Recorder fixtures
 
@@ -222,7 +228,7 @@ It submits through the wrapped editor, captures the accepted user entry, and pre
 
 The proactive-delegation fixture verifies the policy rewrite touches only the two explicit-only sentences and stays inert where it does not apply.
 
-A system prompt carrying pi-subagents' guideline and advertised catalog must lose both `only when delegation is needed` sentences, keep the catalog's preflight instruction and unrelated guidelines, and end with the mode paragraph; a prompt without those sentences still gains the paragraph. Scoped models append as a deduplicated `provider/id` list under the enabled-only rule with the `llm-router` placeholder dropped, and a scope holding only the placeholder appends no list. An absent `subagent` tool or a prompt already carrying the paragraph must return `undefined`. `proactiveDelegation: false` in `proper-base.json` reads as disabled while a missing key, missing file, or damaged file reads as enabled.
+Pi's actual `ExtensionRunner` chains the policy handler before a foreign section/tool contributor and the title helper. All contributions survive without setting `forceSystemPrompt`; both explicit-only sentences change while the catalog preflight remains. Scoped choices deduplicate and omit the placeholder, and explicitly defer to an active router's advertised task-text override without detecting load order. No subagent tool is a no-op, repeated application is idempotent, and an existing opaque replacement retains its exclusions while accepting the new instructions. Config disabling and missing or damaged config defaults remain covered.
 
 ## Questionnaire cancellation fixture
 
@@ -240,7 +246,7 @@ An errored assistant message whose text matches the CPA `empty_stream` pattern o
 
 Fast-mode fixtures verify the session and global tier scopes against a temporary agent directory holding provider config and catalog files.
 
-Cases prove a bare `/fast` submission is the only session toggle text; session Fast adds `service_tier: "priority"` for capable models of the configured provider while already-injected, non-object, foreign-provider, and non-capable payloads stay untouched; Fast off strips exactly the priority tier while other tier values survive; and the session reset restores the default. Global cases prove one overlay's toggle reaches another instance's next request through the shared config file, preserves unrelated keys and the provider's file format, and honors `CLIPROXYAPI_PROVIDER_ID`. Valid `CLIPROXYAPI_FAST` values make both the storage method and the real `/fast-global` command refuse the toggle, with command feedback naming the effective override; invalid values still fall back to the file. A rewritten catalog cache refreshes by modification time, a missing cache means no capable models, and recorder coverage proves `/fast` is swallowed before recording.
+Cases prove a bare `/fast` submission is the only session toggle text; session Fast adds `service_tier: "priority"` for capable models of the configured provider while already-injected, non-object, foreign-provider, and non-capable payloads stay untouched; Fast off strips exactly the priority tier while other tier values survive; and the session reset restores the default. Global cases prove one overlay's toggle reaches another instance's next request through the shared config file, preserves unrelated keys and the provider's file format, and honors `CLIPROXYAPI_PROVIDER_ID`. Valid `CLIPROXYAPI_FAST` values make both the storage method and the real `/fast-global` command refuse the toggle, with command feedback naming the effective override; invalid values still fall back to the file. A rewritten catalog cache refreshes by modification time, a missing cache means no capable models, and recorder coverage proves `/fast` is swallowed before recording. A fake-clock regression instruments real filesystem methods: 1,000 display lookups perform no reads or stats. External changes reach display within one second but reach request decisions immediately, local toggles are immediate, unchanged refreshes cause no redraw, and disposal stops polling.
 
 ## Commit guard fixtures
 

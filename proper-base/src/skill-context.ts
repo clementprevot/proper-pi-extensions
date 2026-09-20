@@ -1,7 +1,7 @@
 import { parseSkillBlock } from "@earendil-works/pi-coding-agent";
 
 /**
- * Characters kept from a single skill body when it is carried across a
+ * Characters kept from a complete skill block when it is carried across a
  * compaction. Roughly four characters per token, matching the estimate Pi's
  * own compaction uses.
  */
@@ -97,8 +97,13 @@ function prependText(message: ContextMessage, prefix: string): ContextMessage {
 	return { ...message, content: next };
 }
 
-function truncate(block: string, limit: number): string {
-	return block.length <= limit ? block : block.slice(0, limit) + TRUNCATED;
+function truncate(block: string, limit: number): string | undefined {
+	if (block.length <= limit) return block;
+	const suffix = `${TRUNCATED}\n</skill>`;
+	// Never cut the opening tag or omit the closing tag. An oversized header
+	// cannot fit safely, so leave that skill out rather than emit broken markup.
+	if (block.indexOf("\n") + 1 + suffix.length > limit) return undefined;
+	return block.slice(0, limit - suffix.length) + suffix;
 }
 
 /**
@@ -167,8 +172,9 @@ function carryAcrossCompaction(
 		if (!invocation) continue;
 		// A skill file edited mid-session yields a new body, so the newest state
 		// of each name decides: a present body cancels an earlier missing one.
-		if (present.has(invocation.block)) missing.delete(invocation.name);
-		else missing.set(invocation.name, invocation);
+		missing.delete(invocation.name);
+		if (!present.has(invocation.block))
+			missing.set(invocation.name, invocation);
 	}
 	if (!missing.size) return undefined;
 
@@ -176,8 +182,8 @@ function carryAcrossCompaction(
 	let used = 0;
 	for (const invocation of [...missing.values()].reverse()) {
 		const block = truncate(invocation.block, MAX_SKILL_CHARS);
-		if (used + block.length > MAX_CARRY_CHARS) continue;
-		used += block.length;
+		if (!block || used + block.length + 2 > MAX_CARRY_CHARS) continue;
+		used += block.length + 2;
 		blocks.unshift(block);
 	}
 	return blocks.length ? `${blocks.join("\n\n")}\n\n` : undefined;

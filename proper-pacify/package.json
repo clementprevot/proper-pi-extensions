@@ -28,6 +28,7 @@
   "files": [
     "pacify.ts",
     "host.ts",
+    "host-interop.ts",
     "README.md",
     "LICENSE"
   ],

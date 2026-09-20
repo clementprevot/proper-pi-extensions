@@ -1,94 +1,134 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
+import {
+	ExtensionRunner,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
+import {
+	buildSystemPrompt,
+	normalizeBuildSystemPromptOptions,
+} from "../node_modules/@earendil-works/pi-coding-agent/dist/core/system-prompt.js";
 import {
 	applyProactiveDelegation,
 	PROACTIVE_DELEGATION_TEXT,
 	readProactiveDelegationEnabled,
 } from "../src/proactive-delegation.ts";
+import { appendPromptSection } from "../src/prompt-sections.ts";
 
-const PROMPT = [
-	"Guidelines:",
-	"- Use bash for file operations like ls, rg, find",
-	"- Use subagent only when delegation is needed.",
-	"- Be concise in your responses",
-	"",
-	"<advertised_subagents>",
-	'The following file-defined subagents opted into discovery. Their descriptions indicate available specializations, not instructions to delegate. Use subagent only when delegation is needed. Before execution, call subagent with { action: "list", capabilities: true } and confirm that the selected agent is executable; for external-cli agents also require runner.available === true.',
-	"  <subagent>",
-	"    <name>reviewer</name>",
-	"  </subagent>",
-	"</advertised_subagents>",
-].join("\n");
+function options() {
+	return normalizeBuildSystemPromptOptions({
+		cwd: "/project",
+		selectedTools: ["subagent"],
+		toolGuidelines: {
+			subagent: ["Use subagent only when delegation is needed."],
+		},
+		sections: {
+			advertised_subagents:
+				'Their descriptions indicate available specializations, not instructions to delegate. Use subagent only when delegation is needed. Before execution, call subagent with { action: "list", capabilities: true }.',
+		},
+	});
+}
 
 // @lat: [[lat.md/proper-base/tests#Verification#Proactive delegation fixture]]
-test("rewrites both explicit-only sentences and appends the mode paragraph", () => {
-	const result = applyProactiveDelegation(PROMPT, true);
-	assert.ok(result);
-	assert.ok(!result.includes("only when delegation is needed"));
-	assert.ok(!result.includes("not instructions to delegate"));
-	assert.ok(result.includes("- Delegate to subagents proactively"));
-	assert.ok(
-		result.includes(
-			'Before execution, call subagent with { action: "list", capabilities: true }',
-		),
+test("rewrites policy fields without freezing later prompt composition", async () => {
+	const handler = (event: any) =>
+		applyProactiveDelegation(event.systemPromptOptions, true);
+	const later = (event: any) => {
+		event.systemPromptOptions.sections.later = "IMPORTANT_LATER_RULE";
+		event.systemPromptOptions.selectedTools.push("read");
+		appendPromptSection(
+			event.systemPromptOptions,
+			"proper_base_title",
+			"TITLE_RULE",
+		);
+	};
+	const runner = new ExtensionRunner(
+		[
+			{ path: "base", handlers: new Map([["before_agent_start", [handler]]]) },
+			{ path: "later", handlers: new Map([["before_agent_start", [later]]]) },
+		] as any,
+		{} as any,
+		"/project",
+		SessionManager.inMemory(),
+		{} as any,
 	);
-	assert.ok(result.includes("- Use bash for file operations"));
-	assert.ok(result.endsWith(PROACTIVE_DELEGATION_TEXT));
-	for (const rule of [
-		"If at any point you can parallelize work",
-		"keep tightly sequential steps, small tasks",
-		"You own synthesis and the final answer",
-		"proper spaces between words and numbers",
-	]) {
-		assert.ok(result.includes(rule), rule);
-	}
+	const result = await runner.emitBeforeAgentStart(
+		"task",
+		undefined,
+		options(),
+	);
+	const prompt = buildSystemPrompt(result.systemPromptOptions);
+	assert.equal(result.systemPromptOptions.forceSystemPrompt, undefined);
+	assert.match(prompt, /IMPORTANT_LATER_RULE/);
+	assert.match(prompt, /TITLE_RULE/);
+	assert.match(prompt, /Delegate to subagents proactively/);
+	assert.match(prompt, /Before execution, call subagent/);
+	assert.doesNotMatch(prompt, /only when delegation is needed/);
+	assert.doesNotMatch(prompt, /not instructions to delegate/);
+	assert.ok(prompt.includes(PROACTIVE_DELEGATION_TEXT));
 });
 
-test("scoped models are listed as the only delegation choices", () => {
-	const result = applyProactiveDelegation("You are pi.", true, [
+test("scoped choices defer to advertised routing overrides without load-order detection", () => {
+	const state = options();
+	applyProactiveDelegation(state, true, [
 		{ provider: "llm-router", id: "auto" },
 		{ provider: "cliproxyapi", id: "gpt-6-astra" },
 		{ provider: "cliproxyapi", id: "claude-opus-5" },
 		{ provider: "cliproxyapi", id: "gpt-6-astra" },
 	]);
-	assert.ok(result);
-	const tail = result.slice(result.indexOf(PROACTIVE_DELEGATION_TEXT));
-	assert.ok(tail.includes("Only these models are enabled in this session"));
+	const text = state.sections.proper_base_delegation ?? "";
+	assert.match(
+		text,
+		/include that override as well; model= alone does not pin a routed child/,
+	);
 	assert.deepEqual(
-		tail.split("\n").filter((line) => line.startsWith("- ")),
+		text.split("\n").filter((line) => line.startsWith("- ")),
 		["- cliproxyapi/gpt-6-astra", "- cliproxyapi/claude-opus-5"],
 	);
-	assert.ok(!tail.includes("llm-router"));
-	assert.equal(
-		applyProactiveDelegation("You are pi.", true, [
-			{ provider: "llm-router", id: "auto" },
-		]),
-		`You are pi.\n\n${PROACTIVE_DELEGATION_TEXT}`,
-	);
+	assert.doesNotMatch(text, /llm-router\/auto/);
 });
 
-test("a prompt without the guideline still gains the paragraph", () => {
-	const result = applyProactiveDelegation("You are pi.", true);
-	assert.equal(result, `You are pi.\n\n${PROACTIVE_DELEGATION_TEXT}`);
+test("no subagent tool is inert and repeated application is idempotent", () => {
+	const state = options();
+	const original = structuredClone(state);
+	applyProactiveDelegation(state, false);
+	assert.deepEqual(state, original);
+	applyProactiveDelegation(state, true);
+	const applied = structuredClone(state);
+	applyProactiveDelegation(state, true);
+	assert.deepEqual(state, applied);
 });
 
-test("no subagent tool or already applied leaves the prompt alone", () => {
-	assert.equal(applyProactiveDelegation(PROMPT, false), undefined);
-	const applied = applyProactiveDelegation(PROMPT, true) as string;
-	assert.equal(applyProactiveDelegation(applied, true), undefined);
+test("prior opaque replacements remain explicit, without resurrecting excluded defaults", () => {
+	const state = options();
+	state.forceSystemPrompt =
+		"Only this prompt. Use subagent only when delegation is needed.";
+	applyProactiveDelegation(state, true);
+	appendPromptSection(state, "proper_base_title", "TITLE_RULE");
+	const prompt = buildSystemPrompt(state);
+	assert.match(prompt, /^Only this prompt\./);
+	assert.match(prompt, /TITLE_RULE/);
+	assert.ok(prompt.includes(PROACTIVE_DELEGATION_TEXT));
+	assert.doesNotMatch(prompt, /advertised_subagents/);
 });
 
 test("proper-base.json proactiveDelegation=false disables, else enabled", () => {
 	const dir = mkdtempSync(join(tmpdir(), "proper-base-proactive-"));
-	assert.equal(readProactiveDelegationEnabled(dir), true);
-	writeFileSync(join(dir, "proper-base.json"), '{"sessionRail":true}');
-	assert.equal(readProactiveDelegationEnabled(dir), true);
-	writeFileSync(join(dir, "proper-base.json"), '{"proactiveDelegation":false}');
-	assert.equal(readProactiveDelegationEnabled(dir), false);
-	writeFileSync(join(dir, "proper-base.json"), "not json");
-	assert.equal(readProactiveDelegationEnabled(dir), true);
+	try {
+		assert.equal(readProactiveDelegationEnabled(dir), true);
+		writeFileSync(join(dir, "proper-base.json"), '{"sessionRail":true}');
+		assert.equal(readProactiveDelegationEnabled(dir), true);
+		writeFileSync(
+			join(dir, "proper-base.json"),
+			'{"proactiveDelegation":false}',
+		);
+		assert.equal(readProactiveDelegationEnabled(dir), false);
+		writeFileSync(join(dir, "proper-base.json"), "not json");
+		assert.equal(readProactiveDelegationEnabled(dir), true);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

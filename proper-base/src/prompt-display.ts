@@ -1,101 +1,63 @@
-import { createHash } from "node:crypto";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export const PROMPT_DISPLAY_ENTRY = "proper-prompt-display";
+type Message = Parameters<SessionManager["appendMessage"]>[0];
+type Entry = ReturnType<SessionManager["getBranch"]>[number];
+export type PromptDisplayRecord = { messageEntryId: string; raw: string };
 
-type Command = { name: string; source: string };
-type Message = { content: string | Array<{ type: string; text?: string }> };
-type Entry = {
-	type: string;
-	customType?: string;
-	data?: unknown;
-};
-export type PromptDisplayRecord = { hash: string; raw: string };
-
-export type PromptDisplayController = {
-	captureInput(text: string, commands: Command[]): void;
-	captureUser(message: Message): void;
-	transform(markdown: string): string;
-	drain(): PromptDisplayRecord[];
-	restore(entries: Entry[]): void;
-	clear(): void;
-};
-
-export function createPromptDisplay(): PromptDisplayController {
-	const display = new Map<string, string>();
-	const pending = new Map<string, string>();
-	const inputs: Array<string | undefined> = [];
-
+/** Display metadata belongs to a message, never to its text or submission order. */
+export function createPromptDisplay() {
+	let display = new WeakMap<Message, string>();
+	const pending: PromptDisplayRecord[] = [];
 	return {
-		captureInput(text, commands) {
-			const name = /^\/([^\s]+)/.exec(text)?.[1];
-			const prompt = name
-				? commands.some(
-						(command) => command.name === name && command.source === "prompt",
-					)
-				: false;
-			inputs.push(prompt ? text : undefined);
+		bind(message: Message, raw: string) {
+			display.set(message, raw);
 		},
-		captureUser(message) {
-			const raw = inputs.shift();
-			if (!raw) return;
-			const expanded = messageText(message);
-			if (!expanded) return;
-			const key = hash(expanded);
-			display.set(key, raw);
-			pending.set(key, raw);
+		rawFor(message: Message): string | undefined {
+			return display.get(message);
 		},
-		transform(markdown) {
-			return display.get(hash(markdown)) ?? markdown;
+		persist(message: Message, messageEntryId: string) {
+			const raw = display.get(message);
+			if (raw !== undefined) pending.push({ messageEntryId, raw });
 		},
-		drain() {
-			const records = [...pending].map(([hash, raw]) => ({ hash, raw }));
-			pending.clear();
-			return records;
+		drain(): PromptDisplayRecord[] {
+			return pending.splice(0);
 		},
-		restore(entries) {
-			display.clear();
-			pending.clear();
-			inputs.length = 0;
+		restore(entries: Entry[]) {
+			display = new WeakMap();
+			pending.length = 0;
+			const messages = new Map(
+				entries.flatMap((entry) =>
+					entry.type === "message" && entry.message.role === "user"
+						? [[entry.id, entry.message] as const]
+						: [],
+				),
+			);
 			for (const entry of entries) {
 				if (
 					entry.type !== "custom" ||
 					entry.customType !== PROMPT_DISPLAY_ENTRY
-				) {
+				)
 					continue;
+				const data = entry.data as { prompts?: unknown } | undefined;
+				if (!data || !Array.isArray(data.prompts)) continue;
+				for (const record of data.prompts) {
+					if (
+						!record ||
+						typeof record !== "object" ||
+						typeof record.messageEntryId !== "string" ||
+						typeof record.raw !== "string"
+					)
+						continue;
+					const message = messages.get(record.messageEntryId);
+					if (message) display.set(message, record.raw);
 				}
-				const records = asRecords(entry.data);
-				for (const record of records) display.set(record.hash, record.raw);
 			}
 		},
 		clear() {
-			display.clear();
-			pending.clear();
-			inputs.length = 0;
+			display = new WeakMap();
+			pending.length = 0;
 		},
 	};
 }
-
-function messageText(message: Message): string {
-	if (typeof message.content === "string") return message.content;
-	return message.content
-		.filter((part) => part.type === "text" && typeof part.text === "string")
-		.map((part) => part.text ?? "")
-		.join("");
-}
-
-function hash(text: string): string {
-	return createHash("sha256").update(text.trim()).digest("hex");
-}
-
-function asRecords(data: unknown): PromptDisplayRecord[] {
-	if (typeof data !== "object" || data === null) return [];
-	const prompts = (data as { prompts?: unknown }).prompts;
-	if (!Array.isArray(prompts)) return [];
-	return prompts.flatMap((record) => {
-		if (typeof record !== "object" || record === null) return [];
-		const { hash, raw } = record as { hash?: unknown; raw?: unknown };
-		return typeof hash === "string" && typeof raw === "string"
-			? [{ hash, raw }]
-			: [];
-	});
-}
+export type PromptDisplayController = ReturnType<typeof createPromptDisplay>;

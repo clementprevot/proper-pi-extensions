@@ -653,13 +653,34 @@ export interface PacifiedPrompt {
 // @lat: [[proper-pacify#Rewrite integrity]]
 const REWRITE_ENVELOPE = /^\s*<rewrite>([\s\S]*)<\/rewrite>\s*$/;
 
+function lineBreaksAtStart(text: string): number {
+	return /^(?:\r?\n)*/.exec(text)?.[0].match(/\r?\n/g)?.length ?? 0;
+}
+
+function lineBreaksAtEnd(text: string): number {
+	return /(?:\r?\n)*$/.exec(text)?.[0].match(/\r?\n/g)?.length ?? 0;
+}
+
 export function parseRewrite(output: string, sent: string): string {
 	const envelope = REWRITE_ENVELOPE.exec(output);
 	if (!envelope) {
 		throw new PacifyError("model answered the prompt instead of rewriting it");
 	}
-	const rewritten = (envelope[1] ?? "").trim();
-	if (!rewritten) throw new PacifyError("pacify returned no text");
+	let rewritten = envelope[1] ?? "";
+	// Strip envelope-formatting lines beyond the input's boundary line counts.
+	// Spaces, indentation, and the prompt's own line breaks remain data.
+	const leading = Math.max(
+		0,
+		lineBreaksAtStart(rewritten) - lineBreaksAtStart(sent),
+	);
+	const trailing = Math.max(
+		0,
+		lineBreaksAtEnd(rewritten) - lineBreaksAtEnd(sent),
+	);
+	rewritten = rewritten
+		.replace(new RegExp(`^(?:\\r?\\n){${leading}}`), "")
+		.replace(new RegExp(`(?:\\r?\\n){${trailing}}$`), "");
+	if (!/\S/.test(rewritten)) throw new PacifyError("pacify returned no text");
 	// A tone rewrite stays near the input's size; an answer wrapped in the
 	// envelope would not. Cheap second gate on a path that fails silently.
 	if (rewritten.length > sent.length * 2 + 200) {

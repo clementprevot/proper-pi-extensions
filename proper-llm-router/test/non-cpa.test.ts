@@ -496,7 +496,14 @@ test("routing switch disables globally and re-enables per session", async () => 
 	let sessionStart:
 		| ((event: { reason: string }, ctx: any) => Promise<void>)
 		| undefined;
-	let agentStart: ((event: { systemPrompt: string }) => unknown) | undefined;
+	let agentStart:
+		| ((event: {
+				systemPromptOptions: {
+					sections: Record<string, string>;
+					forceSystemPrompt?: string;
+				};
+		  }) => unknown)
+		| undefined;
 	const switches: string[] = [];
 	llmRouter({
 		on(name: string, handler: any) {
@@ -564,7 +571,9 @@ test("routing switch disables globally and re-enables per session", async () => 
 		]);
 		await sessionStart({ reason: "startup" }, ctxFor(terra, []));
 		assert.equal(switches.length, 1);
-		assert.equal(agentStart({ systemPrompt: "base" }), undefined);
+		const disabledPrompt = { systemPromptOptions: { sections: {} } };
+		assert.equal(agentStart(disabledPrompt), undefined);
+		assert.deepEqual(disabledPrompt.systemPromptOptions.sections, {});
 
 		// on for this session only: env override, session re-armed, file
 		// still off, children spawned from this process inherit the override
@@ -578,7 +587,29 @@ test("routing switch disables globally and re-enables per session", async () => 
 		assert.equal(menus.at(-1)?.[1], "Disable routing for this session");
 		await sessionStart({ reason: "startup" }, ctxFor(terra, []));
 		assert.equal(switches.length, 3);
-		assert.notEqual(agentStart({ systemPrompt: "base" }), undefined);
+		const enabledPrompt: Parameters<NonNullable<typeof agentStart>>[0] = {
+			systemPromptOptions: { sections: {} },
+		};
+		assert.equal(agentStart(enabledPrompt), undefined);
+		assert.match(
+			enabledPrompt.systemPromptOptions.sections.proper_llm_router ?? "",
+			/task-text|prefix that task string/,
+		);
+		assert.equal(
+			enabledPrompt.systemPromptOptions.forceSystemPrompt,
+			undefined,
+		);
+		const forced = {
+			systemPromptOptions: {
+				sections: {},
+				forceSystemPrompt: "Explicit replacement",
+			},
+		};
+		agentStart(forced);
+		assert.match(
+			forced.systemPromptOptions.forceSystemPrompt,
+			/^Explicit replacement\n\n/,
+		);
 
 		// session override off again, then back on globally
 		await configHandler(

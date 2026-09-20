@@ -9,6 +9,11 @@ import {
 	type SessionManager,
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
+import {
+	installWrapper,
+	ORIGINAL_INPUT,
+	originalInput,
+} from "./host-interop.ts";
 
 type Message = Parameters<SessionManager["appendMessage"]>[0];
 export type RewriteOrigin = { entryId: string; before: string };
@@ -45,6 +50,22 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 	const restorers: Array<() => void> = [];
 	const boundAgents = new WeakSet<AgentSession["agent"]>();
 	const boundManagers = new WeakSet<SessionManager>();
+	let admission = Promise.resolve();
+	const reservations = new Set<() => void>();
+
+	async function reserveAdmission(): Promise<() => void> {
+		const previous = admission;
+		let release!: () => void;
+		admission = new Promise<void>((resolve) => {
+			release = () => {
+				reservations.delete(release);
+				resolve();
+			};
+		});
+		reservations.add(release);
+		await previous;
+		return release;
+	}
 
 	function bindSession(session: AgentSession): void {
 		const agent = session.agent;
@@ -66,10 +87,7 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 					}
 					return Reflect.apply(original, this, args);
 				};
-				Reflect.set(agent, name, wrapped);
-				restorers.push(() => {
-					if (agent[name] === wrapped) Reflect.set(agent, name, original);
-				});
+				restorers.push(installWrapper(agent, name, wrapped));
 			}
 		}
 		const manager = session.sessionManager;
@@ -81,10 +99,7 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 				if (hooks.active) hooks.persist(message, id, this);
 				return id;
 			};
-			manager.appendMessage = wrapped;
-			restorers.push(() => {
-				if (manager.appendMessage === wrapped) manager.appendMessage = append;
-			});
+			restorers.push(installWrapper(manager, "appendMessage", wrapped));
 		}
 	}
 
@@ -98,37 +113,117 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 			return prompt.call(this, text, options);
 		}
 		bindSession(this);
-		let decision: InputDecision;
+		// Every registered command may synchronously submit a nested prompt, not
+		// just our own. Preserve Pi's command-before-busy-check semantics.
+		const commandName = text.startsWith("/")
+			? text.slice(1).split(" ")[0]
+			: undefined;
+		const command =
+			options?.expandPromptTemplates !== false && commandName
+				? this.extensionRunner.getCommand(commandName)
+				: undefined;
+		const release = command ? () => {} : await reserveAdmission();
+		let released = false;
+		const settle = () => {
+			if (released) return;
+			released = true;
+			release();
+		};
+		let preflightReported = false;
+		const report = (success: boolean) => {
+			if (preflightReported) return;
+			preflightReported = true;
+			settle();
+			options?.preflightResult?.(success);
+		};
 		try {
-			decision = await hooks.prepare(this.extensionRunner.createContext(), {
-				text,
-				source: options?.source ?? "interactive",
-				...(options?.images ? { images: options.images } : {}),
-			});
+			if (!hooks.active) {
+				report(true);
+				return;
+			}
+			if (!command && this.isStreaming && !options?.streamingBehavior) {
+				throw new Error(
+					"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+				);
+			}
+			const decision = await hooks.prepare(
+				this.extensionRunner.createContext(),
+				{
+					text,
+					source: options?.source ?? "interactive",
+					...(options?.images ? { images: options.images } : {}),
+				},
+			);
+			if (!hooks.active || decision.result.action === "handled") {
+				report(true);
+				return;
+			}
+			const result = decision.result;
+			const forwarded = {
+				...options,
+				[ORIGINAL_INPUT]: originalInput(text, options),
+				preflightResult: report,
+				...(result.action === "transform" && result.images
+					? { images: result.images }
+					: {}),
+			};
+
+			return dispatch.run({ origin: decision.origin, bound: false }, () =>
+				prompt
+					.call(
+						this,
+						result.action === "transform" ? result.text : text,
+						forwarded,
+					)
+					.finally(settle),
+			);
 		} catch (error) {
-			options?.preflightResult?.(false);
+			report(false);
 			throw error;
 		}
-		if (!hooks.active || decision.result.action === "handled") {
-			options?.preflightResult?.(true);
-			return;
-		}
-		const result = decision.result;
-		return dispatch.run({ origin: decision.origin, bound: false }, () =>
-			prompt.call(
-				this,
-				result.action === "transform" ? result.text : text,
-				result.action === "transform" && result.images
-					? { ...options, images: result.images }
-					: options,
-			),
-		);
 	};
-	AgentSession.prototype.prompt = wrappedPrompt;
-	restorers.push(() => {
-		if (AgentSession.prototype.prompt === wrappedPrompt)
-			AgentSession.prototype.prompt = prompt;
-	});
+	restorers.push(
+		installWrapper(AgentSession.prototype, "prompt", wrappedPrompt),
+	);
+
+	for (const name of ["steer", "followUp"] as const) {
+		const original = AgentSession.prototype[name];
+		const wrapped: typeof original = async function (
+			this: AgentSession,
+			...args
+		) {
+			const [text, images, options] = args;
+			if (!hooks.active || this.sessionManager !== hooks.manager) {
+				return original.apply(this, args);
+			}
+			bindSession(this);
+			const decision = await hooks.prepare(
+				this.extensionRunner.createContext(),
+				{
+					text,
+					source: options?.source ?? "interactive",
+					...(images ? { images } : {}),
+				},
+			);
+			if (!hooks.active || decision.result.action === "handled") return;
+			const result = decision.result;
+			const forwarded = {
+				...options,
+				[ORIGINAL_INPUT]: originalInput(text, options),
+			};
+			return dispatch.run({ origin: decision.origin, bound: false }, () =>
+				original.call(
+					this,
+					result.action === "transform" ? result.text : text,
+					result.action === "transform" && result.images
+						? result.images
+						: images,
+					forwarded,
+				),
+			);
+		};
+		restorers.push(installWrapper(AgentSession.prototype, name, wrapped));
+	}
 
 	// Capture identity at component construction, not by text during rendering.
 	// The host still builds and renders its own user components and transformers.
@@ -186,16 +281,13 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 			};
 		}
 	};
-	prototype.addMessageToChat = wrappedAdd;
-	restorers.push(() => {
-		if (prototype.addMessageToChat === wrappedAdd)
-			prototype.addMessageToChat = addMessage;
-	});
+	restorers.push(installWrapper(prototype, "addMessageToChat", wrappedAdd));
 
 	return {
 		inDispatch: () => dispatch.getStore() !== undefined,
 		dispose() {
 			hooks.active = false;
+			for (const release of reservations) release();
 			hooks.displayRevision++;
 			for (const restore of restorers.reverse()) restore();
 			dispatch.disable();

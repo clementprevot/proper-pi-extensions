@@ -15,6 +15,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	getAgentDir,
+	type MarkdownTransformer,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
@@ -66,7 +67,9 @@ import {
 	createPromptDisplay,
 	PROMPT_DISPLAY_ENTRY,
 } from "./src/prompt-display.ts";
+import { installPromptDisplayHost } from "./src/prompt-display-host.ts";
 import { installPromptJump } from "./src/prompt-jump.ts";
+import { appendPromptSection } from "./src/prompt-sections.ts";
 import { installRecorder } from "./src/recorder.ts";
 import { installSelectionDismiss } from "./src/selection-dismiss.ts";
 import { installFastSessionList } from "./src/session-list.ts";
@@ -272,13 +275,16 @@ export default function (pi: ExtensionAPI) {
 	let sessionTitlePending = false;
 	const promptDisplay = createPromptDisplay();
 
-	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Prompt display]]
-	pi.registerMarkdownTransformer?.((markdown, context) => {
-		if (context.messageType === "user")
-			return promptDisplay.transform(markdown);
+	const markdownTransformer: MarkdownTransformer = (markdown, context) => {
 		if (context.messageType !== "assistant") return markdown;
 		return markdown.replace(SESSION_TITLE_DISPLAY_PATTERN, "");
-	});
+	};
+	pi.registerMarkdownTransformer?.(markdownTransformer);
+	const promptDisplayHost = installPromptDisplayHost(
+		promptDisplay,
+		() => pi.getCommands(),
+		markdownTransformer,
+	);
 
 	const findPendingEntry = (ctx: ExtensionContext) => {
 		if (!pendingPrompt?.messageTimestamp) return undefined;
@@ -396,7 +402,6 @@ export default function (pi: ExtensionAPI) {
 		if (event.source === "interactive") {
 			// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Pinned transcript scrolling]]
 			if (event.text.trim()) activeTui?.scrollToBottom?.();
-			promptDisplay.captureInput(event.text, pi.getCommands());
 		}
 		if (
 			event.source === "interactive" &&
@@ -417,7 +422,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_start", (event) => {
 		if (event.message.role === "user") {
-			promptDisplay.captureUser(event.message);
 			if (pendingPrompt) {
 				pendingPrompt.messageTimestamp = event.message.timestamp;
 			}
@@ -458,12 +462,11 @@ export default function (pi: ExtensionAPI) {
 		if (!readProactiveDelegationEnabled(getAgentDir())) return;
 		const tools =
 			event.systemPromptOptions?.selectedTools ?? pi.getActiveTools?.() ?? [];
-		const systemPrompt = applyProactiveDelegation(
-			event.systemPrompt,
+		applyProactiveDelegation(
+			event.systemPromptOptions,
 			tools.includes("subagent"),
 			ctx.scopedModels.map((scoped) => scoped.model),
 		);
-		if (systemPrompt !== undefined) return { systemPrompt };
 	});
 
 	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Automatic session title]]
@@ -472,9 +475,11 @@ export default function (pi: ExtensionAPI) {
 			sessionTitlePending = false;
 			return;
 		}
-		return {
-			systemPrompt: `${event.systemPrompt}\n\n${SESSION_TITLE_INSTRUCTION}`,
-		};
+		appendPromptSection(
+			event.systemPromptOptions,
+			"proper_base_title",
+			SESSION_TITLE_INSTRUCTION,
+		);
 	});
 
 	pi.on("message_end", (event) => {
@@ -586,6 +591,7 @@ export default function (pi: ExtensionAPI) {
 		removeWheelScroll = undefined;
 		removeFooterColors?.();
 		removeFooterColors = undefined;
+		fastOverlay.stopDisplayRefresh();
 		removeJumpToBottom?.();
 		removeJumpToBottom = undefined;
 		removePromptJump?.();
@@ -618,14 +624,14 @@ export default function (pi: ExtensionAPI) {
 		pendingPrompt = undefined;
 		restoreRequest = undefined;
 		sessionTitlePending = false;
-		promptDisplay.clear();
+		promptDisplayHost.dispose();
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		stickyDefaults.activate(ctx.sessionManager);
 		// Session Fast never survives into a new or restored session.
 		fastOverlay.resetSession();
-		promptDisplay.restore(ctx.sessionManager.getBranch());
+		promptDisplayHost.activate(ctx.sessionManager);
 		sessionTitlePending =
 			!pi.getSessionName?.() &&
 			!ctx.sessionManager
@@ -800,9 +806,13 @@ export default function (pi: ExtensionAPI) {
 			);
 			installAutocompleteDetails(editor, tui, theme);
 			removeFooterColors?.();
+			fastOverlay.stopDisplayRefresh();
 			removeFooterColors = installFooterColors(tui, ctx, () =>
-				fastOverlay.isEffectiveFor(ctx.model ?? undefined),
+				fastOverlay.isEffectiveForDisplay(ctx.model ?? undefined),
 			);
+			if (removeFooterColors) {
+				fastOverlay.startDisplayRefresh(() => tui.requestRender());
+			}
 			for (const prompt of seeded) historyGuard?.add(prompt);
 			return editor;
 		};

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -200,6 +202,57 @@ test("a rewritten models cache refreshes the capability set", async () => {
 		// A missing cache means no capable models rather than a failure.
 		await rm(cachePath);
 		assert.equal(overlay.supportsModel(SOL), false);
+	});
+});
+
+test("footer Fast reads are memory-only with bounded refresh and disposal", async (t) => {
+	t.mock.timers.enable({ apis: ["setInterval"] });
+	await withAgentDir(async (agentDir) => {
+		const overlay = new FastOverlay(agentDir, {});
+		let redraws = 0;
+		overlay.startDisplayRefresh(() => redraws++);
+		try {
+			overlay.toggleSession();
+			const read = t.mock.method(fs, "readFileSync");
+			const stat = t.mock.method(fs, "statSync");
+			syncBuiltinESMExports();
+			try {
+				for (let frame = 0; frame < 1000; frame++)
+					assert.equal(overlay.isEffectiveForDisplay(SOL), true);
+				assert.equal(read.mock.callCount(), 0);
+				assert.equal(stat.mock.callCount(), 0);
+			} finally {
+				read.mock.restore();
+				stat.mock.restore();
+				syncBuiltinESMExports();
+			}
+			overlay.resetSession();
+			assert.equal(overlay.isEffectiveForDisplay(SOL), false);
+			new FastOverlay(agentDir, {}).toggleGlobal();
+			assert.equal(overlay.isEffectiveForDisplay(SOL), false);
+			assert.equal(
+				overlay.isEffectiveFor(SOL),
+				true,
+				"requests do not wait for display refresh",
+			);
+			t.mock.timers.tick(1000);
+			assert.equal(overlay.isEffectiveForDisplay(SOL), true);
+			assert.equal(redraws, 2);
+			t.mock.timers.tick(1000);
+			assert.equal(redraws, 2, "unchanged files do not redraw");
+			overlay.toggleGlobal();
+			assert.equal(
+				overlay.isEffectiveForDisplay(SOL),
+				false,
+				"local toggles are immediate",
+			);
+			overlay.stopDisplayRefresh();
+			const stopped = redraws;
+			t.mock.timers.tick(5000);
+			assert.equal(redraws, stopped);
+		} finally {
+			overlay.stopDisplayRefresh();
+		}
 	});
 });
 

@@ -82,11 +82,14 @@ test("first response names a fresh session and hides the title marker", async ()
 		assert.ok(messageEnd);
 		assert.ok(transformer);
 
-		const prompt = await beforeAgentStart(
-			{ systemPrompt: "base prompt" },
-			fixture.ctx,
+		const event = {
+			systemPromptOptions: { sections: {} as Record<string, string> },
+		};
+		assert.equal(await beforeAgentStart(event, fixture.ctx), undefined);
+		assert.match(
+			event.systemPromptOptions.sections.proper_base_title ?? "",
+			/<session_title>/,
 		);
-		assert.match(prompt.systemPrompt, /<session_title>/);
 
 		const markdown =
 			"Implemented it.\n<session_title>Fix\x1b terminal\x07 tab title</session_title>";
@@ -141,9 +144,12 @@ test("an aborted response leaves automatic naming for the retry", async () => {
 			fixture.ctx,
 		);
 		assert.equal(fixture.getName(), undefined);
+		const event = {
+			systemPromptOptions: { sections: {} as Record<string, string> },
+		};
+		await beforeAgentStart(event, fixture.ctx);
 		assert.match(
-			(await beforeAgentStart({ systemPrompt: "retry prompt" }, fixture.ctx))
-				.systemPrompt,
+			event.systemPromptOptions.sections.proper_base_title ?? "",
 			/<session_title>/,
 		);
 	} finally {

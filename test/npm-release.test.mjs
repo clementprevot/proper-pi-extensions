@@ -41,6 +41,7 @@ test("pacify ships runtime source without its test or config scaffolding", async
 	assert.deepEqual(manifest.files, [
 		"pacify.ts",
 		"host.ts",
+		"host-interop.ts",
 		"README.md",
 		"LICENSE",
 	]);

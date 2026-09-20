@@ -31,7 +31,7 @@ test("distributed extension sources load with bundled Pi's virtual modules", asy
 				"@earendil-works/pi-tui": tui,
 			},
 		});
-		for (const name of ["pacify.ts", "host.ts"]) {
+		for (const name of ["pacify.ts", "host.ts", "host-interop.ts"]) {
 			await copyFile(
 				new URL(`../${name}`, import.meta.url),
 				join(directory, name),
