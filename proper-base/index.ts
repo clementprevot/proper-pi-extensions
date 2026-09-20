@@ -26,6 +26,7 @@ import {
 	modelThinkingCommand,
 	sortModelAutocompleteDescending,
 } from "./src/autocomplete-details.ts";
+import { installBaseKeybindings } from "./src/base-keybindings.ts";
 import { installClipboardLeakGuard } from "./src/clipboard-guard.ts";
 import { commitGuardReason } from "./src/commit-guard.ts";
 import { installEditorMouseGuard } from "./src/editor-mouse.ts";
@@ -72,10 +73,8 @@ import { installFastSessionList } from "./src/session-list.ts";
 import { installSettings, type SettingsController } from "./src/settings.ts";
 import { pinSkillContext } from "./src/skill-context.ts";
 import { installSmartSelection } from "./src/smart-selection.ts";
-import {
-	persistDefaultModel,
-	persistDefaultThinkingLevel,
-} from "./src/startup-defaults.ts";
+import { stickyDefaultsEnabled } from "./src/startup-defaults.ts";
+import { installStickyDefaultsAdapter } from "./src/sticky-defaults.ts";
 import {
 	appendPrompt,
 	compactIfNeeded,
@@ -105,76 +104,6 @@ type EditorFactory = NonNullable<
 >;
 
 type TaggedFactory = EditorFactory & { [WRAPPED]?: EditorFactory | null };
-type EditorKeybindings = Parameters<EditorFactory>[2];
-
-const FULLSCREEN_KEYBINDINGS = Symbol.for(
-	"pi-proper-base.fullscreen-keybindings",
-);
-const LEGACY_FULLSCREEN_KEYBINDINGS = Symbol.for(
-	"pi-proper-customs.fullscreen-keybindings",
-);
-const FULLSCREEN_KEYS = {
-	"tui.altScreen.pageUp": "ctrl+shift+pageUp",
-	"tui.altScreen.pageDown": "ctrl+shift+pageDown",
-	"tui.altScreen.top": "ctrl+shift+home",
-	"tui.altScreen.bottom": "ctrl+shift+end",
-} as const;
-
-type KeybindingController = { apply(): void };
-type PatchedKeybindings = EditorKeybindings & {
-	[FULLSCREEN_KEYBINDINGS]?: true | KeybindingController;
-	[LEGACY_FULLSCREEN_KEYBINDINGS]?: true | KeybindingController;
-};
-
-function installKeybindings(keybindings: EditorKeybindings): void {
-	const patched = keybindings as PatchedKeybindings;
-	const apply = () => {
-		const imagePasteKeys = [
-			...new Set([
-				...keybindings.getKeys("app.clipboard.pasteImage"),
-				"ctrl+v" as const,
-				"ctrl+shift+v" as const,
-			]),
-		];
-		// Shift+Enter is already Pi's `tui.input.newLine` default; only Alt+Enter
-		// needs adding, and only because it must leave `app.message.followUp`.
-		const newLineKeys = [
-			...new Set([
-				...keybindings.getKeys("tui.input.newLine"),
-				"alt+enter" as const,
-			]),
-		];
-		const followUpKeys = keybindings
-			.getKeys("app.message.followUp")
-			.filter((key) => key !== "alt+enter");
-		keybindings.setUserBindings({
-			...keybindings.getUserBindings(),
-			...FULLSCREEN_KEYS,
-			"app.clipboard.pasteImage": imagePasteKeys,
-			"tui.input.newLine": newLineKeys,
-			"app.message.followUp": followUpKeys,
-		});
-	};
-	const existing =
-		patched[FULLSCREEN_KEYBINDINGS] ?? patched[LEGACY_FULLSCREEN_KEYBINDINGS];
-	if (existing && existing !== true) {
-		existing.apply = apply;
-		patched[FULLSCREEN_KEYBINDINGS] = existing;
-		delete patched[LEGACY_FULLSCREEN_KEYBINDINGS];
-		existing.apply();
-		return;
-	}
-
-	const reload = keybindings.reload.bind(keybindings);
-	const controller: KeybindingController = { apply };
-	keybindings.reload = () => {
-		reload();
-		controller.apply();
-	};
-	patched[FULLSCREEN_KEYBINDINGS] = controller;
-	delete patched[LEGACY_FULLSCREEN_KEYBINDINGS];
-	controller.apply();
-}
 
 type EditorTui = Parameters<EditorFactory>[0] & {
 	scrollToBottom?(): void;
@@ -268,7 +197,13 @@ export default function (pi: ExtensionAPI) {
 	installClipboardLeakGuard();
 	enableScribeCapabilities();
 	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Session listing]]
-	installFastSessionList(SessionManager, getAgentDir());
+	const removeFastSessionList = installFastSessionList(
+		SessionManager,
+		getAgentDir(),
+	);
+	const stickyDefaults = installStickyDefaultsAdapter(() =>
+		stickyDefaultsEnabled(getAgentDir()),
+	);
 
 	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Fast tier scopes]]
 	const fastOverlay = new FastOverlay(getAgentDir());
@@ -280,6 +215,14 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			if (args.trim()) {
 				ctx.ui.notify("Usage: /fast-global", "error");
+				return;
+			}
+			const environmentOverride = fastOverlay.globalEnvironmentOverride();
+			if (environmentOverride !== undefined) {
+				ctx.ui.notify(
+					`Cannot toggle global Fast mode while CLIPROXYAPI_FAST=${environmentOverride ? "true" : "false"} overrides the saved setting.`,
+					"warning",
+				);
 				return;
 			}
 			let enabled: boolean;
@@ -301,6 +244,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	let removeFooterColors: (() => void) | undefined;
+	let removeKeybindings: (() => void) | undefined;
+	let removeWheelScroll: (() => void) | undefined;
 	// ctx.ui.addAutocompleteProvider() returns void and stacks permanently, so
 	// re-registering on every session_start would leave one live provider per
 	// session load. Register the model sort exactly once.
@@ -445,20 +390,6 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 		},
-	});
-
-	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Sticky startup defaults]]
-	pi.on("model_select", (event) => {
-		if (event.source === "restore") return;
-		persistDefaultModel(getAgentDir(), event.model);
-	});
-
-	pi.on("thinking_level_select", (event, ctx) => {
-		persistDefaultThinkingLevel(
-			getAgentDir(),
-			event.level,
-			ctx.model ?? undefined,
-		);
 	});
 
 	pi.on("input", (event) => {
@@ -647,6 +578,12 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
+		removeFastSessionList();
+		stickyDefaults.restore();
+		removeKeybindings?.();
+		removeKeybindings = undefined;
+		removeWheelScroll?.();
+		removeWheelScroll = undefined;
 		removeFooterColors?.();
 		removeFooterColors = undefined;
 		removeJumpToBottom?.();
@@ -685,6 +622,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		stickyDefaults.activate(ctx.sessionManager);
 		// Session Fast never survives into a new or restored session.
 		fastOverlay.resetSession();
 		promptDisplay.restore(ctx.sessionManager.getBranch());
@@ -767,14 +705,16 @@ export default function (pi: ExtensionAPI) {
 		// with extensions that provide their own editor.
 		const base = resolveBase(ctx.ui.getEditorComponent());
 		const factory: TaggedFactory = (tui, theme, keybindings) => {
-			installKeybindings(keybindings);
+			removeKeybindings?.();
+			removeKeybindings = installBaseKeybindings(keybindings);
 			const editor =
 				base?.(tui, theme, keybindings) ??
 				new CustomEditor(tui, theme, keybindings);
 			activeEditor = editor as PromptEditor;
 			activeTui = tui;
 			// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Wheel scroll rate]]
-			installWheelScrollLines(tui);
+			removeWheelScroll?.();
+			removeWheelScroll = installWheelScrollLines(tui);
 			// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Settled transcript]]
 			transcriptCleanup?.uninstall();
 			transcriptCleanup = installTranscriptCleanup(tui, ctx);

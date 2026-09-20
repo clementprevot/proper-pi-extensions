@@ -71,6 +71,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	type AnthropicEffort,
+	type Context,
+	hasApi,
+	type Model,
+	type ThinkingLevel as PiThinkingLevel,
+} from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -1024,6 +1031,187 @@ export type JudgeRunner = (
 	menu: string[],
 	signal?: AbortSignal,
 ) => Promise<JudgeResult>;
+
+// Bundled Pi only exposes pi-ai's public root, not its internal option helpers.
+function adjustMaxTokensForThinking(
+	base: number,
+	ceiling: number,
+	level: PiThinkingLevel,
+) {
+	const budget = { minimal: 1024, low: 2048, medium: 8192, high: 16384 }[
+		level === "xhigh" || level === "max" ? "high" : level
+	];
+	const maxTokens = Math.min(base + budget, ceiling);
+	return {
+		maxTokens,
+		thinkingBudget: Math.min(budget, Math.max(0, maxTokens - 1024)),
+	};
+}
+
+function clampMaxTokensToContext(
+	model: RegistryModel,
+	context: Context,
+	maxTokens: number,
+): number {
+	// Fresh text/tool-only side calls, with Pi's 4096-token context safety room.
+	return model.contextWindow > 0
+		? Math.min(
+				maxTokens,
+				Math.max(
+					1,
+					model.contextWindow -
+						Math.ceil(JSON.stringify(context).length / 4) -
+						4096,
+				),
+			)
+		: maxTokens;
+}
+
+function resolveGoogleThinkingLevel(
+	model: RegistryModel,
+	level: PiThinkingLevel,
+) {
+	const mapped = model.thinkingLevelMap?.[level];
+	const value = typeof mapped === "string" ? mapped.toLowerCase() : level;
+	if (
+		value === "minimal" ||
+		value === "low" ||
+		value === "medium" ||
+		value === "high"
+	)
+		return value;
+	throw new Error(
+		`Unsupported Google thinking level mapping for ${model.provider}/${model.id}: ${level}`,
+	);
+}
+
+function anthropicEffort(level: string): AnthropicEffort {
+	switch (level) {
+		case "minimal":
+		case "low":
+			return "low";
+		case "medium":
+			return "medium";
+		case "high":
+			return "high";
+		case "xhigh":
+			return "xhigh";
+		case "max":
+			return "max";
+		default:
+			return "high";
+	}
+}
+
+function anthropicThinkingOptions(
+	model: Model<"anthropic-messages">,
+	context: Context,
+	effort: string,
+): {
+	thinkingEnabled: true;
+	effort?: AnthropicEffort;
+	thinkingBudgetTokens?: number;
+	maxTokens?: number;
+} {
+	// completeSimple owns the provider-neutral mapping, but cannot require a
+	// named tool. Mirror its Anthropic branch for the tool-capable raw call.
+	const level: PiThinkingLevel =
+		effort === "minimal" ||
+		effort === "low" ||
+		effort === "medium" ||
+		effort === "high" ||
+		effort === "xhigh" ||
+		effort === "max"
+			? effort
+			: "high";
+	if (
+		model.compat?.forceAdaptiveThinking ||
+		model.compat?.supportsMidConvoEffort
+	) {
+		const mapped = model.thinkingLevelMap?.[level];
+		return {
+			thinkingEnabled: true,
+			maxTokens: clampMaxTokensToContext(
+				model,
+				context,
+				adjustMaxTokensForThinking(1024, model.maxTokens, level).maxTokens,
+			),
+			effort:
+				typeof mapped === "string"
+					? (mapped as AnthropicEffort)
+					: anthropicEffort(level),
+		};
+	}
+	const adjusted = adjustMaxTokensForThinking(512, model.maxTokens, level);
+	const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+	if (maxTokens < 2048)
+		throw new Error(
+			"not enough token capacity for judge thinking and a verdict",
+		);
+	return {
+		thinkingEnabled: true,
+		maxTokens,
+		thinkingBudgetTokens: Math.min(
+			adjusted.thinkingBudget,
+			Math.max(0, maxTokens - 1024),
+		),
+	};
+}
+
+function googleThinkingOptions(model: RegistryModel, effort: string) {
+	const level: PiThinkingLevel =
+		effort === "minimal" ||
+		effort === "low" ||
+		effort === "medium" ||
+		effort === "high" ||
+		effort === "xhigh" ||
+		effort === "max"
+			? effort
+			: "high";
+	const resolved = resolveGoogleThinkingLevel(model, level);
+	const id = model.id.toLowerCase();
+	const pro = /gemini-3(?:\.\d+)?-pro/.test(id);
+	const gemma = /gemma-?4/.test(id);
+	if (
+		pro ||
+		gemma ||
+		/gemini-3(?:\.\d+)?-flash/.test(id) ||
+		id === "gemini-flash-latest" ||
+		id === "gemini-flash-lite-latest"
+	) {
+		return {
+			enabled: true,
+			level: pro
+				? resolved === "minimal" || resolved === "low"
+					? "LOW"
+					: "HIGH"
+				: gemma
+					? resolved === "minimal" || resolved === "low"
+						? "MINIMAL"
+						: "HIGH"
+					: (
+							{
+								minimal: "MINIMAL",
+								low: "LOW",
+								medium: "MEDIUM",
+								high: "HIGH",
+							} as const
+						)[resolved],
+		};
+	}
+	return {
+		enabled: true,
+		budgetTokens: id.includes("2.5")
+			? {
+					minimal: id.includes("flash-lite") ? 512 : 128,
+					low: 2048,
+					medium: 8192,
+					high: id.includes("pro") ? 32768 : 24576,
+				}[resolved]
+			: -1,
+	};
+}
+
 function registryJudgeRunner(
 	ctx: ExtensionContext,
 	cfg: Config,
@@ -1039,6 +1227,28 @@ function registryJudgeRunner(
 			required: ["model", "rationale"],
 			additionalProperties: false,
 		};
+		const context: Context = {
+			messages: [
+				{
+					role: "system",
+					content: `${instructions}\n\nCall route_model with your chosen slot and rationale. Do not answer in prose.`,
+					toolsAdded: [
+						{
+							name: "route_model",
+							description: "Choose the model slot for this coding task.",
+							parameters: schema as never,
+							constrainedSampling: { type: "json_schema", strict: "require" },
+						},
+					],
+					timestamp: Date.now(),
+				},
+				{
+					role: "user",
+					content: task.slice(0, JUDGE_TASK_CHARS),
+					timestamp: Date.now(),
+				},
+			],
+		};
 		const options: Record<string, unknown> = {
 			signal,
 			maxRetries: 0,
@@ -1047,26 +1257,84 @@ function registryJudgeRunner(
 			cacheRetention: "none",
 		};
 		if (cfg.judge.effort) {
-			if (
-				model.api === "anthropic-messages" ||
-				model.api === "bedrock-converse-stream"
-			) {
-				options.reasoning = cfg.judge.effort;
+			if (hasApi(model, "anthropic-messages")) {
+				Object.assign(
+					options,
+					anthropicThinkingOptions(model, context, cfg.judge.effort),
+				);
+			} else if (model.api === "bedrock-converse-stream") {
+				// Bedrock owns its distinct unified reasoning mapping.
+				const effort = cfg.judge.effort;
+				const level: PiThinkingLevel =
+					effort === "minimal" ||
+					effort === "low" ||
+					effort === "medium" ||
+					effort === "high" ||
+					effort === "xhigh" ||
+					effort === "max"
+						? effort
+						: "high";
+				const adjusted = adjustMaxTokensForThinking(
+					1024,
+					model.maxTokens,
+					level,
+				);
+				const maxTokens = clampMaxTokensToContext(
+					model,
+					context,
+					adjusted.maxTokens,
+				);
+				if (maxTokens < 2048)
+					throw new Error(
+						"not enough token capacity for Bedrock judge thinking and a verdict",
+					);
+				Object.assign(options, {
+					reasoning: level,
+					maxTokens,
+					thinkingBudgets: {
+						[level === "xhigh" || level === "max" ? "high" : level]: Math.min(
+							adjusted.thinkingBudget,
+							maxTokens - 1024,
+						),
+					},
+				});
 			} else if (
 				model.api === "google-generative-ai" ||
 				model.api === "google-vertex"
 			) {
-				options.thinking = { enabled: true, level: cfg.judge.effort };
+				const thinking = googleThinkingOptions(model, cfg.judge.effort);
+				options.thinking = thinking;
+				// Thinking shares Google's output ceiling with the final tool call.
+				const budget = thinking.budgetTokens;
+				options.maxTokens = clampMaxTokensToContext(
+					model,
+					context,
+					Math.min(
+						model.maxTokens,
+						(budget && budget > 0 ? budget : 8192) + 1024,
+					),
+				);
+				if (budget && budget > 0 && Number(options.maxTokens) < budget + 1024)
+					throw new Error(
+						"not enough token capacity for Google judge thinking and a verdict",
+					);
 			} else {
 				options.reasoningEffort = cfg.judge.effort;
 			}
 		}
 		if (cfg.judge.fast) options.serviceTier = "priority";
-		if (
-			model.api === "anthropic-messages" ||
-			model.api === "bedrock-converse-stream"
-		) {
-			options.toolChoice = { type: "tool", name: "route_model" };
+		if (hasApi(model, "anthropic-messages")) {
+			// Manual thinking and managed-effort models can reject forced tools.
+			// Strict arguments plus the validated retry loop retain the verdict contract.
+			options.toolChoice =
+				options.thinkingBudgetTokens !== undefined ||
+				model.compat?.supportsMidConvoEffort
+					? "auto"
+					: { type: "tool", name: "route_model" };
+		} else if (model.api === "bedrock-converse-stream") {
+			options.toolChoice = cfg.judge.effort
+				? "auto"
+				: { type: "tool", name: "route_model" };
 		} else if (
 			model.api === "google-generative-ai" ||
 			model.api === "google-vertex"
@@ -1074,6 +1342,11 @@ function registryJudgeRunner(
 			options.toolChoice = "any";
 		} else if (model.api.endsWith("codex-responses")) {
 			options.toolChoice = "required";
+		} else if (
+			model.api === "openai-responses" ||
+			model.api === "azure-openai-responses"
+		) {
+			options.toolChoice = { type: "function", name: "route_model" };
 		} else {
 			options.toolChoice = {
 				type: "function",
@@ -1086,28 +1359,8 @@ function registryJudgeRunner(
 			try {
 				const response = await ctx.modelRegistry.complete(
 					model,
-					{
-						systemPrompt: instructions,
-						messages: [
-							{
-								role: "user",
-								content: task.slice(0, JUDGE_TASK_CHARS),
-								timestamp: Date.now(),
-							},
-						],
-						tools: [
-							{
-								name: "route_model",
-								description: "Choose the model slot for this coding task.",
-								parameters: schema as never,
-								constrainedSampling: {
-									type: "json_schema",
-									strict: "require",
-								},
-							},
-						],
-					},
-					options as never,
+					context,
+					options,
 				);
 				const call = response.content.find(
 					(part) => part.type === "toolCall" && part.name === "route_model",
@@ -1303,7 +1556,19 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, ctx) => {
 		if (!routingEnabled(loadConfig())) return;
-		if (event.reason === "startup" || event.reason === "new") {
+		const hasConversation = ctx.sessionManager
+			.getBranch()
+			.some(
+				(entry) =>
+					(entry.type === "message" && entry.message.role !== "system") ||
+					entry.type === "custom_message" ||
+					entry.type === "compaction" ||
+					entry.type === "branch_summary",
+			);
+		if (
+			(event.reason === "startup" || event.reason === "new") &&
+			!hasConversation
+		) {
 			if (ctx.model?.provider !== PROVIDER) {
 				const auto = ctx.modelRegistry.find(PROVIDER, "auto");
 				if (auto) await pi.setModel(auto);

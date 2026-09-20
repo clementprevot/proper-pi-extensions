@@ -5,17 +5,20 @@ import { join } from "node:path";
 import { test } from "node:test";
 import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import { installBaseKeybindings } from "../src/base-keybindings.ts";
 
 test("base keybindings add image paste, prompt newlines, and transcript shortcuts", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "proper-base-fullscreen-"));
 	let onSessionStart: ((event: unknown, ctx: any) => Promise<void>) | undefined;
+	let onSessionShutdown: (() => void) | undefined;
 	let installedFactory:
 		| ((tui: any, theme: any, keybindings: KeybindingsManager) => any)
 		| undefined;
 
 	properBase({
-		on(event: string, handler: typeof onSessionStart) {
+		on(event: string, handler: (...args: any[]) => any) {
 			if (event === "session_start") onSessionStart = handler;
+			if (event === "session_shutdown") onSessionShutdown = handler;
 		},
 		getCommands: () => [],
 	} as any);
@@ -270,6 +273,35 @@ test("base keybindings add image paste, prompt newlines, and transcript shortcut
 		);
 		assert.deepEqual(keybindings.getUserBindings(), firstInstall);
 	} finally {
+		onSessionShutdown?.();
 		await rm(cwd, { recursive: true, force: true });
 	}
+});
+
+test("keybinding reload wrapper supports fresh takeover and restoration", () => {
+	const keybindings = new KeybindingsManager({
+		"app.clipboard.pasteImage": "alt+v",
+	});
+	const legacy = {
+		apply() {
+			throw new Error("legacy callback must be retired");
+		},
+	};
+	Object.assign(keybindings, {
+		[Symbol.for("pi-proper-base.fullscreen-keybindings")]: legacy,
+	});
+	const originalReload = keybindings.reload;
+	const staleRestore = installBaseKeybindings(keybindings);
+	assert.doesNotThrow(() => legacy.apply());
+	const firstReload = keybindings.reload;
+	const restore = installBaseKeybindings(keybindings);
+	assert.notEqual(keybindings.reload, firstReload);
+
+	staleRestore();
+	assert.ok(keybindings.getKeys("app.clipboard.pasteImage").includes("ctrl+v"));
+	restore();
+	assert.equal(keybindings.reload, originalReload);
+	assert.deepEqual(keybindings.getUserBindings(), {
+		"app.clipboard.pasteImage": "alt+v",
+	});
 });

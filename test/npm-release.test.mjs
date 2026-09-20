@@ -38,7 +38,12 @@ test("pacify ships runtime source without its test or config scaffolding", async
 	const manifest = JSON.parse(
 		await readFile(new URL("proper-pacify/package.json", root), "utf8"),
 	);
-	assert.deepEqual(manifest.files, ["pacify.ts", "README.md", "LICENSE"]);
+	assert.deepEqual(manifest.files, [
+		"pacify.ts",
+		"host.ts",
+		"README.md",
+		"LICENSE",
+	]);
 	assert.deepEqual(manifest.pi.extensions, ["./pacify.ts"]);
 	assert.equal(manifest.scripts.prepack, "npm test && npm run typecheck");
 });

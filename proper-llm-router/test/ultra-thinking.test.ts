@@ -131,15 +131,14 @@ test("OpenAI Responses sends the model's ultra effort mapping", async () => {
 			thinkingLevelMap: { ultra: "ultra" },
 		} as any,
 		{
-			systemPrompt: "test",
 			messages: [
+				{ role: "system", content: "test", timestamp: Date.now() },
 				{
 					role: "user",
 					content: [{ type: "text", text: "test" }],
 					timestamp: Date.now(),
 				},
 			],
-			tools: [],
 		} as any,
 		{
 			apiKey: "test",

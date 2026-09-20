@@ -1,22 +1,18 @@
 /**
  * Pi's fullscreen renderer scrolls its transcript exactly one line per
- * mouse-wheel report: the renderer's `wheelScrollLines` option defaults to 1
- * and pi passes no override and exposes no setting. Terminals natively
- * multiply a wheel notch to about three lines, so fullscreen scrolling feels
- * slower than every other terminal surface.
- *
- * No escape sequence lets an application query the terminal's own wheel
- * configuration, so the step defaults to the 3-line application convention
- * (vim, less) and honors a per-terminal `PROPER_WHEEL_SCROLL_LINES`
- * environment override that each terminal's profile can export.
+ * mouse-wheel report. Proper-base raises that to the terminal convention.
  */
 
 const DEFAULT_WHEEL_SCROLL_LINES = 3;
+const INSTALLED = Symbol.for("pi-proper-base.wheel-scroll-lines");
 
-/** Renderer surface carrying the per-wheel-event line count. */
-type WheelHost = { wheelScrollLines?: unknown };
+type WheelController = { restore(): void };
+type WheelHost = {
+	wheelScrollLines?: unknown;
+	[INSTALLED]?: WheelController;
+};
 
-/** Lines per wheel event: a positive integer override, else the 3-line convention. */
+/** Lines per wheel event: a positive integer override, else three. */
 export function resolveWheelScrollLines(
 	env: Record<string, string | undefined> = process.env,
 ): number {
@@ -24,23 +20,24 @@ export function resolveWheelScrollLines(
 	return parsed >= 1 ? parsed : DEFAULT_WHEEL_SCROLL_LINES;
 }
 
-/**
- * Raise the fullscreen renderer's wheel step. Only a renderer that already
- * exposes a numeric `wheelScrollLines` is touched, so regular mode — where
- * the terminal scrolls natively — and a renamed upstream field fail open to
- * pi's own behavior.
- *
- * ponytail: SGR wheel reports cannot distinguish a discrete mouse notch from
- * one line of a high-rate trackpad stream, so a terminal emitting one report
- * per native line scrolls proportionally faster; exporting
- * PROPER_WHEEL_SCROLL_LINES=1 there restores pi's original pace.
- */
+/** Patch a fullscreen renderer and return an ownership-checked restoration. */
 export function installWheelScrollLines(
 	tui: unknown,
 	lines: number = resolveWheelScrollLines(),
-): boolean {
+): (() => void) | undefined {
 	const host = tui as WheelHost;
-	if (typeof host.wheelScrollLines !== "number") return false;
-	host.wheelScrollLines = Math.floor(lines);
-	return true;
+	host[INSTALLED]?.restore();
+	if (typeof host.wheelScrollLines !== "number") return undefined;
+	const original = host.wheelScrollLines;
+	const applied = Math.floor(lines);
+	const controller: WheelController = {
+		restore() {
+			if (host[INSTALLED] !== controller) return;
+			if (host.wheelScrollLines === applied) host.wheelScrollLines = original;
+			delete host[INSTALLED];
+		},
+	};
+	host.wheelScrollLines = applied;
+	host[INSTALLED] = controller;
+	return () => controller.restore();
 }

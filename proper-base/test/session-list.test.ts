@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { SessionSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js";
 
 import {
@@ -328,15 +329,79 @@ test("the installed listers match pi's own SessionManager surface", async () => 
 	assert.equal(typeof SessionManager.list, "function");
 	assert.equal(typeof SessionManager.listAll, "function");
 
-	installFastSessionList(SessionManager, scratch());
-	const sessions = await SessionManager.list("/work/app", sessionDir);
-	assert.deepEqual(
-		sessions.map((session) => session.firstMessage),
-		["through pi"],
-	);
+	const restore = installFastSessionList(SessionManager, scratch());
+	try {
+		const sessions = await SessionManager.list("/work/app", sessionDir);
+		assert.deepEqual(
+			sessions.map((session) => session.firstMessage),
+			["through pi"],
+		);
+	} finally {
+		restore();
+	}
 });
 
-test("installFastSessionList replaces both listers exactly once", async () => {
+test("an existing selector query refreshes without losing its selection", async () => {
+	const agentDir = scratch();
+	const dir = projectSessionDir(agentDir, "/work/app");
+	const stablePath = writeSession(dir, "stable.jsonl", [
+		header("/work/app"),
+		message("user", "stable row", "2026-08-01T10:00:00.000Z"),
+		{ type: "session_info", id: "named", name: "needle stable" },
+	]);
+	writeSession(dir, "added.jsonl", [
+		header("/work/app"),
+		message("user", "other row", "2026-08-03T10:00:00.000Z"),
+		message("assistant", "needle added", "2026-08-03T10:01:00.000Z"),
+	]);
+	const target = {
+		list: async () => [] as SessionInfo[],
+		listAll: async () => [] as SessionInfo[],
+	};
+	const restore = installFastSessionList(target, agentDir);
+	let renders = 0;
+	const selector = new SessionSelectorComponent(
+		() =>
+			(target.list as unknown as (cwd: string) => Promise<SessionInfo[]>)(
+				"/work/app",
+			) as never,
+		async () => [],
+		() => {},
+		() => {},
+		() => {},
+		() => {
+			renders++;
+		},
+	);
+	const list = selector.getSessionList() as unknown as {
+		allSessions: SessionInfo[];
+		filteredSessions: Array<{ session: SessionInfo }>;
+		getSelectedSessionPath(): string | undefined;
+	};
+	try {
+		for (let waited = 0; waited < 100 && list.allSessions.length < 2; waited++)
+			await delay(5);
+		for (const character of "needle") selector.handleInput(character);
+		assert.equal(list.getSelectedSessionPath(), stablePath);
+
+		for (
+			let waited = 0;
+			waited < 100 && list.filteredSessions.length < 2;
+			waited++
+		)
+			await delay(5);
+		assert.ok(renders > 1);
+		assert.equal(list.getSelectedSessionPath(), stablePath);
+		assert.deepEqual(
+			list.filteredSessions.map((item) => item.session.firstMessage),
+			["stable row", "other row"],
+		);
+	} finally {
+		restore();
+	}
+});
+
+test("installFastSessionList supports reload takeover and restoration", async () => {
 	const agentDir = scratch();
 	writeSession(projectSessionDir(agentDir, "/work/app"), "a.jsonl", [
 		header("/work/app"),
@@ -348,11 +413,17 @@ test("installFastSessionList replaces both listers exactly once", async () => {
 		listAll: async () => [] as SessionInfo[],
 	};
 	const target: typeof original = { ...original };
-	installFastSessionList(target, agentDir);
+	// Older releases left a boolean tag, not a restoration controller.
+	Object.assign(target, {
+		[Symbol.for("pi-proper-base.fast-session-list")]: true,
+	});
+	const staleRestore = installFastSessionList(target, agentDir);
 	const patched = target.list;
 	assert.notEqual(patched, original.list);
-	installFastSessionList(target, agentDir);
-	assert.equal(target.list, patched);
+	const restore = installFastSessionList(target, agentDir);
+	assert.notEqual(target.list, patched);
+	staleRestore();
+	assert.notEqual(target.list, original.list);
 
 	const sessions = await (
 		target.list as unknown as (cwd: string) => Promise<SessionInfo[]>
@@ -366,4 +437,7 @@ test("installFastSessionList replaces both listers exactly once", async () => {
 		await delay(10);
 	}
 	assert.equal(sessions[0]?.allMessagesText, "installed");
+	restore();
+	assert.equal(target.list, original.list);
+	assert.equal(target.listAll, original.listAll);
 });

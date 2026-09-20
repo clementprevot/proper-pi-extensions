@@ -167,14 +167,12 @@ rewrite could never change skips the model call and writes no entry: a bare
 command, a choice such as `A` or `1B 2C`, `yes`, `no`, an alias, a URL, or
 any prompt of at most two words.
 
-Pacification happens above Pi's extension handler chain, in the single input
-dispatch funnel, so no other extension can see an unpacified prompt no matter
-what order packages are installed in. Pi chains `input` handlers in load order
-and offers no priority control, so the package wraps `emitInput` on the host's
-own `ExtensionRunner`, reached through the coding-agent module Pi provides to
-extensions. The wrapper installs once per process. If a future host stops
-exposing that funnel, the extension keeps working through its ordinary `input`
-handler and ordering falls back to load order.
+Pacification happens before registered command handlers and the input-handler
+chain, regardless of package installation order. Pi 0.86.0 has no public
+pre-command hook, so a small compatibility adapter wraps the host's
+`AgentSession.prompt`. Pi still handles dispatch, expansion and queueing.
+Shutdown restores owned adapters and aborts outstanding rewrites; reload
+installs fresh code instead of retaining a stale extension instance.
 
 A successful transform becomes Pi's stored user message. The extension also
 adds a visible custom session entry holding the original prompt, headed
@@ -191,6 +189,14 @@ chose, so repeating them on every prompt says nothing about that prompt.
 The entry collapses to its `› pacifying with <model>` header and keeps the
 original prompt hidden until you expand it with Pi's `app.tools.expand`
 binding, which also drives tool output.
+
+The user message displays a word diff when `diff` is enabled. An invisible
+session entry links the exact original and user-message IDs, so repeated text,
+model switches and queued prompts cannot mix up originals. The renderer indexes
+links once at session start and caches diffs instead of scanning history on
+resize. Older logs remain readable but do not receive guessed diffs.
+`/pacify-config` updates the display immediately; external config edits take
+effect at the next eligible input or session start.
 
 Cancellation and failure are written to the session transcript through Pi's
 notification API rather than to a footer status slot, so they appear beside the
@@ -213,7 +219,8 @@ Missing or invalid values use these defaults:
   "effort": "medium",
   "fast": false,
   "prompt": "Copy the input and change only the spans listed below. Leave every other word exactly as written, in its original order.\n\nEditable spans:\n1. Profanity, insults, sarcasm, and contempt, such as \"the hell\", \"stupid\", \"idiot\", or \"garbage\". Delete the hostile wording and keep the rest of the sentence, including its question or command form. When the hostile phrase also asserts something about the work, restate that assertion plainly instead of deleting it: \"the docs are useless\" becomes \"the docs do not cover it\".\n2. Exasperation markers and sarcastic interjections, such as \"Ugh\", \"Seriously?\", or \"Wow\". Delete.\n3. Flattery and praise aimed at the reader, such as \"you're amazing\". Delete.\n4. Pleading and emotional pressure aimed at the reader, such as \"I'm begging you\" or \"please please\". Delete.\n5. Deference frames wrapped around a request, such as \"I'd be grateful if you could\", \"if it isn't too much trouble\", or \"at your convenience\". Delete the frame up to the verb it wraps and keep every verb after it, including \"consider\" and \"suggest\", even when the sentence chains two verbs: \"Would you mind possibly suggesting whether X\" becomes \"Could you suggest whether X\", and \"I'd be grateful if you could consider possibly reviewing X\" becomes \"Consider reviewing X\".\n6. Drama that states only the speaker's feeling, such as \"this is a disaster\". Replace it with the plain fact, or delete it when it states no fact.\n\nEverything else is content. Keep claims about past behavior, consequences, conditions, urgency, modality, scope, emphasis, interrogative words, question marks, and imperative verbs. Add no politeness markers, greetings, apologies, gratitude, encouragement, or reassurance. If the input contains none of the listed spans, return it unchanged.",
-  "auto": false
+  "auto": false,
+  "diff": true
 }
 ```
 
@@ -253,7 +260,7 @@ below. Remove any stale direct-file registration so Pi loads one copy.
 
 ## Development
 
-Use Node 22.19 or newer. Pi 0.85.1 is the compatibility target.
+Use Node 22.19 or newer and Pi 0.86.0 or newer. Development dependencies follow latest Pi releases.
 
 ```bash
 npm install

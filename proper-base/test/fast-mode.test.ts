@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 // @lat: [[lat.md/proper-base/tests#Verification#Fast tier fixture]]
 
+import properBase from "../index.ts";
 import {
 	FastOverlay,
 	fastToggleNotice,
@@ -126,20 +127,58 @@ test("the global flag is re-read from the provider config per request", async ()
 test("CLIPROXYAPI_FAST and provider id follow the provider's grammar", async () => {
 	await withAgentDir(async (agentDir) => {
 		const overlay = new FastOverlay(agentDir, { CLIPROXYAPI_FAST: "on" });
+		assert.equal(overlay.globalEnvironmentOverride(), true);
 		assert.equal(overlay.isGlobalEnabled(), true);
+		assert.throws(() => overlay.toggleGlobal(), /CLIPROXYAPI_FAST/);
 		// Invalid env values fall back to the file.
-		assert.equal(
-			new FastOverlay(agentDir, {
-				CLIPROXYAPI_FAST: "maybe",
-			}).isGlobalEnabled(),
-			false,
-		);
+		const invalidOverride = new FastOverlay(agentDir, {
+			CLIPROXYAPI_FAST: "maybe",
+		});
+		assert.equal(invalidOverride.globalEnvironmentOverride(), undefined);
+		assert.equal(invalidOverride.isGlobalEnabled(), false);
 		const renamed = new FastOverlay(agentDir, {
 			CLIPROXYAPI_PROVIDER_ID: "cpa-dev",
 		});
 		assert.equal(renamed.providerId(), "cpa-dev");
 		assert.equal(renamed.rewritePayload({ a: 1 }, SOL), undefined);
 	});
+});
+
+test("/fast-global explains that an environment override cannot be toggled", async () => {
+	const previous = process.env.CLIPROXYAPI_FAST;
+	process.env.CLIPROXYAPI_FAST = "on";
+	let command: { handler(args: string, ctx: any): Promise<void> } | undefined;
+	let shutdown: (() => void) | undefined;
+	properBase({
+		on(event: string, handler: (...args: any[]) => any) {
+			if (event === "session_shutdown") shutdown = handler;
+		},
+		registerCommand(name: string, definition: typeof command) {
+			if (name === "fast-global") command = definition;
+		},
+	} as any);
+	const notices: Array<{ message: string; level: string }> = [];
+	try {
+		await command?.handler("", {
+			model: undefined,
+			ui: {
+				notify(message: string, level: string) {
+					notices.push({ message, level });
+				},
+			},
+		});
+		assert.deepEqual(notices, [
+			{
+				message:
+					"Cannot toggle global Fast mode while CLIPROXYAPI_FAST=true overrides the saved setting.",
+				level: "warning",
+			},
+		]);
+	} finally {
+		shutdown?.();
+		if (previous === undefined) delete process.env.CLIPROXYAPI_FAST;
+		else process.env.CLIPROXYAPI_FAST = previous;
+	}
 });
 
 test("a rewritten models cache refreshes the capability set", async () => {

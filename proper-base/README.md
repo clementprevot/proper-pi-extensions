@@ -25,9 +25,10 @@ and footer layout.
   those only when you press Ctrl+S in the picker, and because Pi re-derives the
   thinking level from the saved default on every model switch, an unsaved level
   is otherwise lost mid-session at the next `/model`, Ctrl+P, or `/clear`.
-  Switching to a model that cannot reach the current level records the level
-  you actually get. Resuming a session does not redefine the model. Set
-  `"stickyDefaults": false` in `~/.pi/agent/proper-base.json` to turn this off.
+  Automatic model-switch clamps do not redefine that choice, and the router's
+  `llm-router/auto` placeholder persists neither itself nor its forced `off`.
+  Resuming a session does not redefine the model. Set `"stickyDefaults": false`
+  in `~/.pi/agent/proper-base.json` to turn this off.
 - Prompt-template expansions remain model-facing, while the transcript shows
   the slash command you typed, such as `/implement-ready epic-1 4`.
 - CLIProxyAPI `empty_stream` failures become normal retryable network errors, so
@@ -148,9 +149,9 @@ as `editorMouse` and `sessionRail`.
 Ctrl+V and Ctrl+Shift+V both use Pi's image-or-text clipboard action. Readable
 clipboard image paths appear as short `[image N]` markers. Image-capable
 terminals render compact previews; text-only terminals show marker source paths.
-Oversized sources are converted to pixel-bounded PNG thumbnails with the
-package's asynchronous `sharp` dependency instead of transmitting the full image
-for a tiny preview. `sharp` ships prebuilt macOS arm64/x64 and Linux binaries, so
+Source metadata and bytes are read asynchronously; oversized sources become
+pixel-bounded PNG thumbnails through `sharp` instead of blocking the editor or
+transmitting the full image for a tiny preview. `sharp` ships prebuilt macOS arm64/x64 and Linux binaries, so
 no external image command is required. Pi's accent braille loader animates while conversion runs; the
 marker and path appear only if conversion is unavailable or fails. When terminal
 focus returns, active Kitty previews are retransmitted so a lost terminal-side
@@ -192,7 +193,7 @@ highlight. Custom replacement footers are not changed.
 
 ## Install
 
-Node 22.19 or newer is required. The package is tested against Pi 0.85.1.
+Node 22.19 or newer is required. The package is tested against Pi 0.86.0.
 
 From npm:
 
@@ -217,6 +218,10 @@ registration. Existing data under the legacy `proper-history` path remains
 compatible.
 
 ## Compatibility
+
+Restart Pi once when upgrading from releases with permanent host patches.
+Those releases did not retain original methods or bindings for restoration.
+New installations restore owned patches on unload and support reload takeover.
 
 - Fullscreen behavior uses Pi's native `tuiMode: "fullscreen"` renderer.
 - Questionnaire cancellation activates only when `ask_user_question` is

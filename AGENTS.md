@@ -17,6 +17,10 @@ package/workspace — use `npm --prefix <pkg>` or cd into each package.
 
 ## Build, test, gates
 
+Pi development dependencies follow `latest`; lockfiles record resolved versions.
+When updating Pi, run `npm --prefix <package> update` for each TypeScript package
+and rerun both gates. Do not hold development dependencies on an older Pi line.
+
 Fresh checkout setup (repo root):
 
 ```bash
@@ -75,4 +79,4 @@ publish-npm.yml --repo sharaf-nassar/proper-pi-extensions --env npm-release`.
 - Router self-registers the `llm-router/auto` placeholder at load; a
   manual models.json entry is optional. Its port-1 URL is an intentional
   dead placeholder, not a service.
-- Toolchain: Node 22.19+, Pi 0.85.1 compatibility, TypeScript 6.
+- Toolchain: Node 22.19+, Pi 0.86.0 compatibility, TypeScript 6.

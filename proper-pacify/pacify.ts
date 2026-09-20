@@ -1,20 +1,29 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+	type AnthropicOptions as AnthropicMessagesOptions,
+	type Context,
+	hasApi,
+	type ThinkingLevel as PiThinkingLevel,
+} from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 	InputEvent,
 	InputEventResult,
 } from "@earendil-works/pi-coding-agent";
-import {
-	ExtensionRunner,
-	getAgentDir,
-	parseSkillBlock,
-} from "@earendil-works/pi-coding-agent";
+import { getAgentDir, parseSkillBlock } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
+import {
+	type InputDecision,
+	installHostHooks,
+	type PacifyHostHooks,
+	type RewriteOrigin,
+} from "./host.ts";
 
 const CONFIG_PATH = join(getAgentDir(), "pacify.json");
 const ENTRY_TYPE = "proper-pacify";
+const LINK_TYPE = "proper-pacify-link";
 
 export const EFFORTS = [
 	"minimal",
@@ -172,6 +181,7 @@ export function loadConfig(configPath = CONFIG_PATH): Config {
 export function saveConfig(config: Config, configPath = CONFIG_PATH): void {
 	mkdirSync(dirname(configPath), { recursive: true });
 	writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+	if (configPath === CONFIG_PATH) refreshDisplayConfig(config);
 }
 
 function providerRank(provider: string, currentProvider?: string): number {
@@ -250,13 +260,69 @@ function scopedModels(ctx: ExtensionContext): RegistryModel[] {
 		: ctx.modelRegistry.getAvailable();
 }
 
-function completionOptions(
+// Keep these small raw-provider mappings local: bundled Pi does not expose
+// pi-ai's internal simple-options or google-shared runtime modules.
+function adjustMaxTokensForThinking(
+	base: number,
+	ceiling: number,
+	level: PiThinkingLevel,
+) {
+	const budget = { minimal: 1024, low: 2048, medium: 8192, high: 16384 }[
+		level === "xhigh" || level === "max" ? "high" : level
+	];
+	const maxTokens = Math.min(base + budget, ceiling);
+	return {
+		maxTokens,
+		thinkingBudget: Math.min(budget, Math.max(0, maxTokens - 1024)),
+	};
+}
+
+function clampMaxTokensToContext(
+	model: RegistryModel,
+	context: Context,
+	maxTokens: number,
+): number {
+	// These side calls contain only fresh text and tool schemas. Estimate the
+	// serialized request conservatively and retain Pi's 4096-token safety room.
+	return model.contextWindow > 0
+		? Math.min(
+				maxTokens,
+				Math.max(
+					1,
+					model.contextWindow -
+						Math.ceil(JSON.stringify(context).length / 4) -
+						4096,
+				),
+			)
+		: maxTokens;
+}
+
+function resolveGoogleThinkingLevel(
+	model: RegistryModel,
+	level: PiThinkingLevel,
+) {
+	const mapped = model.thinkingLevelMap?.[level];
+	const value = typeof mapped === "string" ? mapped.toLowerCase() : level;
+	if (
+		value === "minimal" ||
+		value === "low" ||
+		value === "medium" ||
+		value === "high"
+	)
+		return value;
+	throw new Error(
+		`Unsupported Google thinking level mapping for ${model.provider}/${model.id}: ${level}`,
+	);
+}
+
+export function completionOptions(
 	model: RegistryModel,
 	config: Config,
 	signal: AbortSignal,
+	context: Parameters<ExtensionContext["modelRegistry"]["complete"]>[1],
 	inputLength: number,
-): Record<string, unknown> {
-	const options: Record<string, unknown> = {
+) {
+	const options = {
 		signal,
 		maxRetries: 0,
 		timeoutMs: 60_000,
@@ -264,25 +330,163 @@ function completionOptions(
 			model.maxTokens,
 			Math.max(1024, Math.ceil(inputLength / 2)),
 		),
-		cacheRetention: "none",
+		cacheRetention: "none" as const,
 	};
-	if (config.effort) {
+	const effort = config.effort;
+	if (hasApi(model, "anthropic-messages")) {
+		if (!effort)
+			return {
+				...options,
+				thinkingEnabled: false,
+			} satisfies AnthropicMessagesOptions;
 		if (
-			model.api === "anthropic-messages" ||
-			model.api === "bedrock-converse-stream"
+			model.compat?.forceAdaptiveThinking ||
+			model.compat?.supportsMidConvoEffort
 		) {
-			options.reasoning = config.effort;
-		} else if (
-			model.api === "google-generative-ai" ||
-			model.api === "google-vertex"
-		) {
-			options.thinking = { enabled: true, level: config.effort };
-		} else {
-			options.reasoningEffort = config.effort;
+			const mapped = model.thinkingLevelMap?.[effort];
+			const value = mapped ?? (effort === "minimal" ? "low" : effort);
+			const anthropicEffort =
+				value === "low" ||
+				value === "medium" ||
+				value === "high" ||
+				value === "xhigh" ||
+				value === "max"
+					? value
+					: "high";
+			return {
+				...options,
+				maxTokens: clampMaxTokensToContext(
+					model,
+					context,
+					adjustMaxTokensForThinking(options.maxTokens, model.maxTokens, effort)
+						.maxTokens,
+				),
+				thinkingEnabled: true,
+				effort: anthropicEffort,
+			} satisfies AnthropicMessagesOptions;
 		}
+		const adjusted = adjustMaxTokensForThinking(
+			options.maxTokens,
+			model.maxTokens,
+			effort,
+		);
+		const maxTokens = clampMaxTokensToContext(
+			model,
+			context,
+			adjusted.maxTokens,
+		);
+		if (maxTokens < 2048)
+			throw new PacifyError(
+				"not enough token capacity for thinking and a rewrite",
+			);
+		return {
+			...options,
+			maxTokens,
+			thinkingEnabled: true,
+			thinkingBudgetTokens: Math.min(
+				adjusted.thinkingBudget,
+				Math.max(0, maxTokens - 1024),
+			),
+		} satisfies AnthropicMessagesOptions;
 	}
-	if (config.fast) options.serviceTier = "priority";
-	return options;
+	if (model.api === "bedrock-converse-stream") {
+		if (!effort) return options;
+		const adjusted = adjustMaxTokensForThinking(
+			options.maxTokens,
+			model.maxTokens,
+			effort,
+		);
+		const maxTokens = clampMaxTokensToContext(
+			model,
+			context,
+			adjusted.maxTokens,
+		);
+		if (maxTokens < 2048)
+			throw new PacifyError(
+				"not enough token capacity for thinking and a rewrite",
+			);
+		return {
+			...options,
+			maxTokens,
+			reasoning: effort,
+			thinkingBudgets: {
+				[effort === "xhigh" || effort === "max" ? "high" : effort]: Math.min(
+					adjusted.thinkingBudget,
+					maxTokens - 1024,
+				),
+			},
+		};
+	}
+	if (hasApi(model, "google-generative-ai") || hasApi(model, "google-vertex")) {
+		if (!effort) return { ...options, thinking: { enabled: false } };
+		const resolved = resolveGoogleThinkingLevel(model, effort);
+		const adjusted = adjustMaxTokensForThinking(
+			options.maxTokens,
+			model.maxTokens,
+			effort,
+		);
+		options.maxTokens = clampMaxTokensToContext(
+			model,
+			context,
+			adjusted.maxTokens,
+		);
+		const id = model.id.toLowerCase();
+		const pro = /gemini-3(?:\.\d+)?-pro/.test(id);
+		const gemma = /gemma-?4/.test(id);
+		if (
+			pro ||
+			gemma ||
+			/gemini-3(?:\.\d+)?-flash/.test(id) ||
+			id === "gemini-flash-latest" ||
+			id === "gemini-flash-lite-latest"
+		) {
+			const level = pro
+				? resolved === "minimal" || resolved === "low"
+					? "LOW"
+					: "HIGH"
+				: gemma
+					? resolved === "minimal" || resolved === "low"
+						? "MINIMAL"
+						: "HIGH"
+					: (
+							{
+								minimal: "MINIMAL",
+								low: "LOW",
+								medium: "MEDIUM",
+								high: "HIGH",
+							} as const
+						)[resolved];
+			return { ...options, thinking: { enabled: true, level } };
+		}
+		const budgetTokens = id.includes("2.5")
+			? {
+					minimal: id.includes("flash-lite") ? 512 : 128,
+					low: 2048,
+					medium: 8192,
+					high: id.includes("pro") ? 32768 : 24576,
+				}[resolved]
+			: -1;
+		if (budgetTokens > 0) {
+			options.maxTokens = clampMaxTokensToContext(
+				model,
+				context,
+				Math.min(
+					model.maxTokens,
+					budgetTokens + Math.max(1024, Math.ceil(inputLength / 2)),
+				),
+			);
+			if (options.maxTokens < budgetTokens + 1024)
+				throw new PacifyError(
+					"not enough token capacity for Google thinking and a rewrite",
+				);
+		}
+		return { ...options, thinking: { enabled: true, budgetTokens } };
+	}
+	return {
+		...options,
+		...(effort ? { reasoningEffort: effort } : {}),
+		...(config.fast ? { serviceTier: "priority" as const } : {}),
+	};
 }
 
 export interface DiffSpan {
@@ -356,64 +560,84 @@ export function diffWords(
 	return spans;
 }
 
-// The diff displays on the user message itself, through Pi's display-only
-// markdown transformer. A custom entry renders when appended — before the
-// rewrite exists — and rebuilds only on an expand toggle or restore, so a diff
-// placed there goes stale in live sessions; the transformer re-runs for new
-// messages, restored sessions, and width changes. Both texts are durable in
-// the session, so the pair is re-derived rather than stored again.
+type UserMessage = Extract<
+	Parameters<PacifyHostHooks["bind"]>[0],
+	{ role: "user" }
+>;
+interface MessagePair extends RewriteOrigin {
+	after: string;
+	spans: DiffSpan[] | undefined;
+}
+
+function bindMessage(
+	live: PacifyRuntime,
+	message: Parameters<PacifyHostHooks["bind"]>[0],
+	origin: RewriteOrigin,
+): void {
+	if (message.role !== "user") return;
+	const content =
+		typeof message.content === "string"
+			? message.content
+			: message.content
+					.filter((part) => part.type === "text")
+					.map((part) => part.text)
+					.join("");
+	const skill = parseSkillBlock(content);
+	const before = skill ? splitCommandPrefix(origin.before).body : origin.before;
+	const after = skill ? (skill.userMessage ?? "") : content;
+	live.pairs.set(message, {
+		...origin,
+		before,
+		after,
+		spans: before === after ? undefined : diffWords(before, after),
+	});
+}
+
+// A single index rebuild on session load. Explicit links survive intervening
+// model changes and distinguish identical text, cancelled prompts and branches.
 // @lat: [[proper-pacify#Session transcript]]
-export function pacifiedOriginalFor(text: string): string | undefined {
-	const manager = runtime()?.sessionManager;
-	if (!manager || !text) return undefined;
-	try {
-		// ponytail: linear scan per render; transcripts are small. Entries are
-		// chronological, so each pacify entry precedes its user-message child.
-		const originals = new Map<string, string>();
-		for (const entry of manager.getEntries()) {
-			if (entry.type === "custom" && entry.customType === ENTRY_TYPE) {
-				const data = entry.data as Partial<PacifyLog> | undefined;
-				// A cancelled rewrite and a dispatched command append no user message
-				// of their own, so their entry's next user-message child is a later,
-				// unrelated prompt — pairing it would strike out text the user never
-				// typed. Only entries that can be followed by their rewrite register.
-				if (
-					typeof data?.before === "string" &&
-					data.before !== text &&
-					!data.cancelled &&
-					!data.command
-				) {
-					originals.set(entry.id, data.before);
-				}
-				continue;
-			}
-			if (entry.type !== "message" || !entry.parentId) continue;
-			const before = originals.get(entry.parentId);
-			if (before === undefined) continue;
-			const message = entry.message;
-			if (message.role !== "user") continue;
-			const content = message.content;
-			const rendered =
-				typeof content === "string"
-					? content
-					: content
-							.filter((part) => part.type === "text")
-							.map((part) => part.text)
-							.join("");
-			// A skill command expands into a skill block Pi renders on its own,
-			// followed by the rewritten argument as the user message. Only that
-			// argument reaches the transformer, so it pairs with the command's body.
-			const skill = parseSkillBlock(rendered);
-			if (skill) {
-				if (skill.userMessage === text) return splitCommandPrefix(before).body;
-			} else if (rendered === text) {
-				return before;
-			}
-		}
-	} catch {
-		// A display nicety must never break rendering.
+function restorePairs(live: PacifyRuntime): void {
+	live.pairs = new WeakMap();
+	const entries = live.manager?.getEntries() ?? [];
+	const byId = new Map(entries.map((entry) => [entry.id, entry]));
+	for (const entry of entries) {
+		if (
+			entry.type !== "custom" ||
+			entry.customType !== LINK_TYPE ||
+			!isRecord(entry.data)
+		)
+			continue;
+		const { originalEntryId, messageEntryId } = entry.data;
+		if (
+			typeof originalEntryId !== "string" ||
+			typeof messageEntryId !== "string"
+		)
+			continue;
+		const original = byId.get(originalEntryId);
+		const sent = byId.get(messageEntryId);
+		if (
+			original?.type !== "custom" ||
+			original.customType !== ENTRY_TYPE ||
+			!isRecord(original.data) ||
+			typeof original.data.before !== "string" ||
+			original.data.cancelled ||
+			original.data.command ||
+			sent?.type !== "message" ||
+			sent.message.role !== "user"
+		)
+			continue;
+		bindMessage(live, sent.message, {
+			entryId: originalEntryId,
+			before: original.data.before,
+		});
 	}
-	return undefined;
+}
+
+function refreshDisplayConfig(config = loadConfig()): void {
+	const live = runtime();
+	if (!live) return;
+	if (live.config.diff !== config.diff) live.displayRevision++;
+	live.config = config;
 }
 
 export interface PacifiedPrompt {
@@ -486,13 +710,20 @@ export async function pacifyText(
 	// change the rewrite, and handing a chat-tuned model the screenshot is what
 	// pulls it into solving the task instead of rewriting the sentence.
 	const turn = buildUserTurn(text);
+	const context: Context = {
+		messages: [
+			{
+				role: "system",
+				content: buildSystemPrompt(config.prompt),
+				timestamp: Date.now(),
+			},
+			{ role: "user", content: turn, timestamp: Date.now() },
+		],
+	};
 	const response = await ctx.modelRegistry.complete(
 		model,
-		{
-			systemPrompt: buildSystemPrompt(config.prompt),
-			messages: [{ role: "user", content: turn, timestamp: Date.now() }],
-		},
-		completionOptions(model, requestConfig, signal, turn.length) as never,
+		context,
+		completionOptions(model, requestConfig, signal, context, turn.length),
 	);
 	if (signal.aborted || response.stopReason === "aborted") {
 		throw new PacifyCancelledError("pacification cancelled");
@@ -557,15 +788,20 @@ async function pacifyInput(
 // rendered directly below this entry and is never repeated inside it.
 function appendLog(
 	pi: ExtensionAPI,
+	ctx: ExtensionContext,
 	model: string,
 	before: string,
 	flags?: Partial<Pick<PacifyLog, "cancelled" | "command">>,
-): void {
+): RewriteOrigin | undefined {
 	try {
 		pi.appendEntry<PacifyLog>(ENTRY_TYPE, { before, model, ...flags });
+		const entryId = ctx.sessionManager?.getLeafId();
+		if (entryId && !flags?.cancelled && !flags?.command)
+			return { entryId, before };
 	} catch {
 		// Losing the transcript record must never cost the user their prompt.
 	}
+	return undefined;
 }
 
 /** Flags a logged input whose dispatch will never append its rewrite as a
@@ -584,6 +820,8 @@ async function withCancellation<T>(
 	work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
 	const controller = new AbortController();
+	const live = runtime();
+	live?.controllers.add(controller);
 	const offEsc = ctx.ui.onTerminalInput?.((data: string) => {
 		if (data !== "\x1b") return undefined;
 		controller.abort();
@@ -592,6 +830,7 @@ async function withCancellation<T>(
 	try {
 		return await work(controller.signal);
 	} finally {
+		live?.controllers.delete(controller);
 		offEsc?.();
 	}
 }
@@ -611,14 +850,9 @@ function configSummary(config: Config): string {
 	return `${config.model}, effort ${config.effort ?? "none"}, fast ${config.fast ? "on" : "off"}, diff ${config.diff ? "on" : "off"}, auto ${describeAuto(config.auto)}${override}`;
 }
 
-// Pi chains input handlers in extension load order, and load order follows the
-// user's settings. Anything registered before this package would otherwise see
-// the raw prompt. Pacification therefore runs above the chain, in the single
-// dispatch funnel, so it never depends on which other packages are installed.
-const INPUT_PATCH = Symbol.for("proper-pacify.input-priority-patch");
-const RUNTIME = Symbol.for("proper-pacify.runtime");
-
-let bypassedExtensionPrompt: string | undefined;
+const LEGACY_RUNTIME = Symbol.for("proper-pacify.runtime");
+const RUNTIME = Symbol.for("proper-pacify.runtime.v2");
+const RELOAD_STATE = Symbol.for("proper-pacify.reload-state");
 
 /** Any command this package owns, including the bypass forms. */
 const PACIFY_COMMAND = /^\s*\/(?:un)?pacify\b/;
@@ -635,41 +869,48 @@ function setSessionAuto(enabled: boolean, ctx: ExtensionContext): void {
 }
 
 // @lat: [[proper-pacify#Bypass commands]]
-function sendBypassed(pi: ExtensionAPI, text: string): void {
-	bypassedExtensionPrompt = text;
+function sendBypassed(
+	pi: ExtensionAPI,
+	text: string,
+	origin?: RewriteOrigin,
+): void {
+	const live = runtime();
+	const bypass = { text, origin };
+	live?.bypasses.push(bypass);
 	try {
 		pi.sendUserMessage(text, {
 			expandPromptTemplates: !PACIFY_COMMAND.test(text),
 		});
 	} catch (error) {
-		bypassedExtensionPrompt = undefined;
+		if (live) live.bypasses = live.bypasses.filter((item) => item !== bypass);
 		throw error;
 	}
 }
 
-interface PacifyRuntime {
+interface PacifyRuntime extends PacifyHostHooks {
 	pi: ExtensionAPI;
-	pacify: (
-		pi: ExtensionAPI,
-		ctx: ExtensionContext,
-		event: Pick<InputEvent, "text" | "images" | "source">,
-	) => Promise<InputEventResult>;
-	/** Nesting guard so one dispatch is never pacified twice. */
-	depth: number;
-	/** Session-scoped automatic mode; `undefined` follows the stored default. */
 	sessionAuto: boolean | undefined;
-	/** Latest session manager, for the markdown transformer's pair lookup. */
-	sessionManager: ExtensionContext["sessionManager"] | undefined;
-	/** Active theme, for styling the diff inside user-message markdown. */
-	theme: ExtensionContext["ui"]["theme"] | undefined;
+	context: ExtensionContext | undefined;
+	config: Config;
+	generation: number;
+	pairs: WeakMap<UserMessage, MessagePair>;
+	controllers: Set<AbortController>;
+	bypasses: Array<{ text: string; origin: RewriteOrigin | undefined }>;
+	host: ReturnType<typeof installHostHooks> | undefined;
 }
 
-// A reload replaces this module but leaves the installed prototype wrapper in
-// place, so the wrapper has to reach the live extension through shared state.
-// Closing over module scope would strand it on the previous instance, whose pi
-// handle is already invalid.
+// Retain only the session override across reload, never an active callback or
+// stale extension context. Every installed adapter belongs to one runtime.
 const runtimeHost = globalThis as typeof globalThis & {
 	[RUNTIME]?: PacifyRuntime;
+	[LEGACY_RUNTIME]?: {
+		sessionManager?: ExtensionContext["sessionManager"];
+		sessionAuto?: boolean;
+	};
+	[RELOAD_STATE]?: {
+		sessionId: string | undefined;
+		sessionAuto: boolean | undefined;
+	};
 };
 
 function runtime(): PacifyRuntime | undefined {
@@ -687,183 +928,173 @@ export function automaticModeEnabled(
 		: isWithinSchedule(config.auto, now);
 }
 
-type InputImages = InputEvent["images"];
-
-interface InputRunner {
-	createContext(): ExtensionContext;
-	emitInput(
-		text: string,
-		images: InputImages,
-		source: InputEvent["source"],
-		streamingBehavior?: InputEvent["streamingBehavior"],
-	): Promise<InputEventResult>;
-	[INPUT_PATCH]?: boolean;
-}
-
-// @lat: [[proper-pacify#Dispatch priority]]
-export function installInputPriorityPrototype(Runner: {
-	prototype: InputRunner;
-}): boolean {
-	const prototype = Runner.prototype;
-	if (
-		prototype[INPUT_PATCH] ||
-		typeof prototype.emitInput !== "function" ||
-		typeof prototype.createContext !== "function"
-	) {
-		return false;
-	}
-
-	const emitInput = prototype.emitInput;
-	prototype.emitInput = async function (
-		text,
-		images,
-		source,
-		streamingBehavior,
-	) {
-		const live = runtime();
-		if (!live)
-			return emitInput.call(this, text, images, source, streamingBehavior);
-
-		const result = await live.pacify(live.pi, this.createContext(), {
-			text,
-			source,
-			...(images ? { images } : {}),
-		});
-		if (result.action === "handled") return result;
-		const pacified = result.action === "transform" ? result.text : text;
-
-		live.depth += 1;
-		try {
-			const downstream = await emitInput.call(
-				this,
-				pacified,
-				images,
-				source,
-				streamingBehavior,
-			);
-			if (downstream.action !== "continue") return downstream;
-		} finally {
-			live.depth -= 1;
-		}
-		return pacified === text
-			? { action: "continue" }
-			: { action: "transform", text: pacified, ...(images ? { images } : {}) };
-	};
-	prototype[INPUT_PATCH] = true;
-	return true;
-}
-
-// Pi hands extensions its own instance of this package through a virtual
-// module, so the imported class is the one the running host instantiates. That
-// holds for both the plain and bundled host layouts, without resolving paths.
-export const INPUT_PRIORITY_SHIM_INSTALLED = installInputPriorityPrototype(
-	ExtensionRunner as unknown as { prototype: InputRunner },
-);
-
 // @lat: [[proper-pacify#Automatic mode]]
-export async function pacifyIncoming(
+async function prepareIncoming(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	event: Pick<InputEvent, "text" | "images" | "source">,
-): Promise<InputEventResult> {
+): Promise<InputDecision> {
 	// Headless runs carry no human at the prompt: `pi -p` scripts and subagent
 	// children receive machine-authored task text, and Pi defaults its `source`
 	// to "interactive", so nothing else distinguishes it. Rewriting it would
 	// spend a model call per run and edit instructions whose sender expects them
 	// to arrive verbatim.
 	const live = runtime();
+	const generation = live?.generation;
 	if (live) {
-		live.sessionManager = ctx.sessionManager;
-		live.theme = ctx.ui?.theme ?? live.theme;
+		live.manager = ctx.sessionManager;
+		live.context = ctx;
 	}
-	if (ctx.mode === "print" || ctx.mode === "json") {
-		return { action: "continue" };
+	const unchanged: InputDecision = { result: { action: "continue" } };
+	if (ctx.mode === "print" || ctx.mode === "json") return unchanged;
+	const bypassIndex =
+		event.source === "extension"
+			? (live?.bypasses.findIndex((item) => item.text === event.text) ?? -1)
+			: -1;
+	if (live && bypassIndex >= 0) {
+		const bypass = live.bypasses.splice(bypassIndex, 1)[0];
+		return {
+			...unchanged,
+			...(bypass?.origin ? { origin: bypass.origin } : {}),
+		};
 	}
-	if (event.source === "extension" && bypassedExtensionPrompt === event.text) {
-		bypassedExtensionPrompt = undefined;
-		return { action: "continue" };
-	}
-	if (!event.text.trim()) return { action: "continue" };
-	// `/unpacify …` is a request not to rewrite, so its argument must reach
-	// command dispatch exactly as typed.
-	if (/^\s*\/unpacify\b/.test(event.text)) return { action: "continue" };
+	// Our own commands implement their rewrite/bypass policy explicitly.
+	if (!event.text.trim() || PACIFY_COMMAND.test(event.text)) return unchanged;
 	// A command with no argument is entirely dispatch syntax with no prose to
 	// rewrite, and a trivial reply has no tone to fix. Returning before the
 	// transcript entry keeps phantom "pacifying" rows out of the session —
 	// proper-base's internal cancelled-prompt repair command would otherwise
 	// log one at the very leaf it is about to abandon.
-	if (isTrivialInput(splitCommandPrefix(event.text).body)) {
-		return { action: "continue" };
-	}
+	if (isTrivialInput(splitCommandPrefix(event.text).body)) return unchanged;
 	const config = loadConfig();
-	if (!automaticModeEnabled(config)) return { action: "continue" };
-	appendLog(pi, config.model, event.text, commandFlags(event.text));
+	refreshDisplayConfig(config);
+	if (!automaticModeEnabled(config)) return unchanged;
+	const origin = appendLog(
+		pi,
+		ctx,
+		config.model,
+		event.text,
+		commandFlags(event.text),
+	);
 	try {
 		const result = await withCancellation(ctx, (signal) =>
 			pacifyInput(ctx, config, event.text, signal),
 		);
+		if (live && (!live.active || live.generation !== generation))
+			return { result: { action: "handled" } };
 		return {
-			action: "transform",
-			text: result.text,
-			...(event.images ? { images: event.images } : {}),
+			result: {
+				action: "transform",
+				text: result.text,
+				...(event.images ? { images: event.images } : {}),
+			},
+			...(origin ? { origin } : {}),
 		};
 	} catch (error) {
+		if (live && (!live.active || live.generation !== generation))
+			return { result: { action: "handled" } };
 		if (error instanceof PacifyCancelledError) {
-			// The marker becomes the leaf, so the next unpacified user message is
-			// its child rather than the pending entry's, and the transformer never
-			// pairs that message with the discarded prompt. It also renders the
-			// outcome beneath the entry that promised a rewrite.
-			appendLog(pi, config.model, event.text, { cancelled: true });
+			appendLog(pi, ctx, config.model, event.text, { cancelled: true });
 			ctx.ui.notify("pacify: cancelled; prompt discarded", "info");
-			return { action: "handled" };
+			return { result: { action: "handled" } };
 		}
 		ctx.ui.notify(
 			`pacify failed; sending original prompt: ${errorMessage(error)}`,
 			"error",
 		);
-		return { action: "continue" };
+		return unchanged;
 	}
 }
 
-export default function properPacify(pi: ExtensionAPI): void {
-	// Publish this instance for the installed wrapper, carrying over state that
-	// belongs to the session rather than to the module a reload just replaced.
-	const previous = runtime();
-	runtimeHost[RUNTIME] = {
-		pi,
-		pacify: pacifyIncoming,
-		depth: previous?.depth ?? 0,
-		sessionAuto: previous?.sessionAuto,
-		sessionManager: previous?.sessionManager,
-		theme: previous?.theme,
-	};
+export async function pacifyIncoming(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	event: Pick<InputEvent, "text" | "images" | "source">,
+): Promise<InputEventResult> {
+	return (await prepareIncoming(pi, ctx, event)).result;
+}
 
-	// The rewritten prompt is the message the user reads, so the diff renders
-	// there: deletions struck through in the removed-diff color, insertions in
-	// the added color, kept text left as ordinary markdown. Pi's transformer is
-	// display-only, so session content and model context stay untouched.
-	// @lat: [[proper-pacify#Session transcript]]
-	pi.registerMarkdownTransformer?.((markdown, { messageType, isStreaming }) => {
-		if (messageType !== "user" || isStreaming) return markdown;
-		const theme = runtime()?.theme;
-		if (!theme) return markdown;
-		// Re-read per render so /pacify-config takes effect without a reload; the
-		// stored file is tiny and renders are far rarer than keystrokes.
-		if (!loadConfig().diff) return markdown;
-		const before = pacifiedOriginalFor(markdown);
-		if (before === undefined) return markdown;
-		const spans = diffWords(before, markdown);
-		if (!spans) return markdown;
-		return spans
-			.map((span) =>
-				span.kind === "removed"
-					? theme.strikethrough(theme.fg("toolDiffRemoved", span.text))
-					: span.kind === "added"
-						? theme.fg("toolDiffAdded", span.text)
-						: span.text,
+function disposeRuntime(live: PacifyRuntime): void {
+	live.active = false;
+	for (const controller of live.controllers) controller.abort();
+	live.controllers.clear();
+	live.host?.dispose();
+	live.bypasses.length = 0;
+	live.pairs = new WeakMap();
+	live.context = undefined;
+	live.manager = undefined;
+	if (runtime() === live) delete runtimeHost[RUNTIME];
+}
+
+export default function properPacify(pi: ExtensionAPI): void {
+	// Older releases left an unremovable emitInput wrapper. Clearing its lookup
+	// makes that wrapper inert; do not feed it this runtime's different contract.
+	const legacy = runtimeHost[LEGACY_RUNTIME];
+	if (legacy) {
+		runtimeHost[RELOAD_STATE] = {
+			sessionId: legacy.sessionManager?.getSessionId(),
+			sessionAuto: legacy.sessionAuto,
+		};
+		delete runtimeHost[LEGACY_RUNTIME];
+	}
+	const previous = runtime();
+	if (previous) disposeRuntime(previous);
+	const live: PacifyRuntime = {
+		pi,
+		active: true,
+		manager: undefined,
+		context: undefined,
+		sessionAuto: undefined,
+		config: loadConfig(),
+		generation: 0,
+		pairs: new WeakMap(),
+		controllers: new Set(),
+		bypasses: [],
+		displayRevision: 0,
+		host: undefined,
+		transformer: (markdown) => markdown,
+		prepare: (ctx, event) => prepareIncoming(pi, ctx, event),
+		bind: (message, origin) => bindMessage(live, message, origin),
+		persist(message, entryId, manager) {
+			const pair =
+				message.role === "user" ? live.pairs.get(message) : undefined;
+			if (!pair) return;
+			try {
+				manager.appendCustomEntry(LINK_TYPE, {
+					originalEntryId: pair.entryId,
+					messageEntryId: entryId,
+				});
+			} catch {
+				// The user message is already persisted. A missing display link must
+				// never fail the agent turn or write a substitute user message.
+			}
+		},
+		transform(message, markdown, { messageType, isStreaming }) {
+			if (
+				!live.active ||
+				!live.config.diff ||
+				message.role !== "user" ||
+				messageType !== "user" ||
+				isStreaming
 			)
-			.join("");
-	});
+				return markdown;
+			const pair = live.pairs.get(message);
+			const theme = live.context?.ui.theme;
+			if (!theme || !pair?.spans || pair.after !== markdown) return markdown;
+			return pair.spans
+				.map((span) =>
+					span.kind === "removed"
+						? theme.strikethrough(theme.fg("toolDiffRemoved", span.text))
+						: span.kind === "added"
+							? theme.fg("toolDiffAdded", span.text)
+							: span.text,
+				)
+				.join("");
+		},
+	};
+	runtimeHost[RUNTIME] = live;
+	live.host = installHostHooks(live);
+	pi.registerMarkdownTransformer?.(live.transformer);
 
 	// @lat: [[proper-pacify#Session transcript]]
 	pi.registerEntryRenderer<PacifyLog>(
@@ -899,18 +1130,22 @@ export default function properPacify(pi: ExtensionAPI): void {
 				ctx.ui.notify("Usage: /pacify <prompt>", "warning");
 				return;
 			}
+			const generation = live.generation;
 			await ctx.waitForIdle();
+			if (!live.active || live.generation !== generation) return;
 			const config = loadConfig();
-			appendLog(pi, config.model, args, commandFlags(args));
+			const origin = appendLog(pi, ctx, config.model, args, commandFlags(args));
 			try {
 				const result = await withCancellation(ctx, (signal) =>
 					pacifyInput(ctx, config, args, signal),
 				);
-				sendBypassed(pi, result.text);
+				if (live.active && live.generation === generation)
+					sendBypassed(pi, result.text, origin);
 			} catch (error) {
 				// Cancelled or failed: nothing was sent, so the entry must not pair
 				// with whatever user message lands below it next.
-				appendLog(pi, config.model, args, { cancelled: true });
+				if (!live.active || live.generation !== generation) return;
+				appendLog(pi, ctx, config.model, args, { cancelled: true });
 				ctx.ui.notify(`pacify: ${errorMessage(error)}`, "error");
 			}
 		},
@@ -924,7 +1159,9 @@ export default function properPacify(pi: ExtensionAPI): void {
 				ctx.ui.notify("Usage: /unpacify <prompt>", "warning");
 				return;
 			}
+			const generation = live.generation;
 			await ctx.waitForIdle();
+			if (!live.active || live.generation !== generation) return;
 			try {
 				sendBypassed(pi, args);
 			} catch (error) {
@@ -947,18 +1184,36 @@ export default function properPacify(pi: ExtensionAPI): void {
 	// A replacement session must not inherit the previous session's override.
 	// Reload keeps it, because the session itself continues across a reload.
 	pi.on("session_start", (event, ctx) => {
-		const live = runtime();
-		if (!live) return;
-		// Stash session and theme for the markdown transformer, which receives no
-		// context of its own; session_start fires before Pi renders restored
-		// messages, so a resumed transcript can diff from its first paint.
+		if (!live.active) return;
+		live.generation++;
+		for (const controller of live.controllers) controller.abort();
+		live.bypasses.length = 0;
 		if (ctx) {
-			live.sessionManager = ctx.sessionManager;
-			live.theme = ctx.ui?.theme ?? live.theme;
+			live.manager = ctx.sessionManager;
+			live.context = ctx;
 		}
-		if (event.reason !== "startup" && event.reason !== "reload") {
-			live.sessionAuto = undefined;
-		}
+		const saved = runtimeHost[RELOAD_STATE];
+		if (
+			event.reason === "reload" &&
+			saved &&
+			saved.sessionId === live.manager?.getSessionId()
+		)
+			live.sessionAuto = saved.sessionAuto;
+		else if (event.reason !== "reload") live.sessionAuto = undefined;
+		delete runtimeHost[RELOAD_STATE];
+		refreshDisplayConfig();
+		restorePairs(live);
+		live.displayRevision++;
+	});
+	pi.on("session_shutdown", (event) => {
+		if (runtime() !== live) return;
+		if (event.reason === "reload")
+			runtimeHost[RELOAD_STATE] = {
+				sessionId: live.manager?.getSessionId(),
+				sessionAuto: live.sessionAuto,
+			};
+		else delete runtimeHost[RELOAD_STATE];
+		disposeRuntime(live);
 	});
 
 	// @lat: [[proper-pacify#Configuration]]
@@ -1084,11 +1339,10 @@ export default function properPacify(pi: ExtensionAPI): void {
 		},
 	});
 
-	// Registering this handler keeps Pi's `hasHandlers("input")` gate open so the
-	// dispatch funnel still runs. It also performs the rewrite on hosts where the
-	// funnel could not be patched, where ordering falls back to load order.
+	// Direct runner dispatch still works for SDK callers. Normal host prompts
+	// have already been processed before command dispatch and input handlers.
 	pi.on("input", async (event, ctx) => {
-		if ((runtime()?.depth ?? 0) > 0) return { action: "continue" };
+		if (!live.active || live.host?.inDispatch()) return { action: "continue" };
 		return pacifyIncoming(pi, ctx, event);
 	});
 }

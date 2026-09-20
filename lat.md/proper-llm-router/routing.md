@@ -6,9 +6,9 @@ Routing is a one-shot session state machine around pi's startup, model-selection
 
 The selected provider is the routing state: input is armed only while the current model belongs to `llm-router`.
 
-On `startup` and `new`, `session_start` switches to `llm-router/auto` only when routing is active per [[configuration#Routing switch]] and the current model belongs to another provider. A successful route selects any authenticated non-router provider, which naturally disarms later input. `/llm-router` or manual placeholder selection re-arms it.
+On `startup` and `new`, `session_start` switches to `llm-router/auto` only when routing is active per [[configuration#Routing switch]], the active branch has no conversation entry, and the current model belongs to another provider. Conversation entries are non-system messages, injected custom messages, compactions, and branch summaries; system-prompt, model-only, or thinking-only persisted state is still fresh and may be armed. A successful route selects any authenticated non-router provider, which naturally disarms later input. `/llm-router` or manual placeholder selection re-arms it.
 
-Resumed sessions are never forcibly moved to `llm-router/auto`, so they stay on the model they were left with.
+Interactive `/resume` emits `resume`, while CLI `-c` and `--session` load an existing conversation with `startup`. Both preserve the restored model because the active conversation check, not the event reason alone, distinguishes continuation from a genuinely new session.
 
 ## Eligible input
 
@@ -43,11 +43,13 @@ The measured latency covers both the judge request and the concurrent availabili
 
 The judge always runs through Pi's configured provider runtime.
 
+Pi 0.86 declares the judge prompt and tool schema in a leading system message, using `toolsAdded`; the task follows as a user message. Legacy top-level `systemPrompt` and `tools` fields are not used.
+
 The strict `route_model` tool requires `model` and `rationale`, rejects extra fields, and limits `model` to the seven stable arm keys. Override targets appear only in system-message labels, paired with their selection keys. The task is truncated to 4,000 characters, and exemplar retrieval scores the same slice. Rationale permits 500 characters; UI displays 150.
 
-Qualified and unqualified judge names resolve against `ctx.modelRegistry.getAvailable()`. `ctx.modelRegistry.complete()` delegates credentials, endpoint selection, headers, provider serialization, and OAuth refresh to Pi. An unresolved judge fails visibly and the input handler uses `fallbackModel`; llm-router has no raw endpoint or provider-key fallback.
+Qualified and unqualified judge names resolve against `ctx.modelRegistry.getAvailable()`. `ctx.modelRegistry.complete()` delegates credentials, endpoint selection, headers, provider serialization, and OAuth refresh to Pi. It intentionally remains the raw, tool-capable registry call: Pi 0.86 exposes `streamSimple()`, but its provider-neutral options do not retain priority service and all managed-effort controls. The raw call retains those provider-specific options. An unresolved judge fails visibly and the input handler uses `fallbackModel`; llm-router has no raw endpoint or provider-key fallback.
 
-The router maps configured effort and optional priority service to the registry request. Codex Responses APIs, including provider-specific IDs ending in `codex-responses`, receive required tool choice so the judge must call `route_model`. It makes at most two 60-second attempts. Missing or invalid tool output and provider errors consume an attempt; user cancellation does not.
+The router maps configured effort and optional priority service to the registry request. Raw Anthropic requests mirror Pi's simple-thinking mapping: adaptive models receive enabled thinking and their mapped effort, budget models expand the 512-token answer cap by the thinking budget while reserving answer room, and host-managed-effort models retain Pi's mandatory adaptive/high policy while receiving the selected effort through its message policy. Manual budget thinking and managed-effort models use automatic tool choice, because forcing a tool can be rejected by those APIs. The instruction requests `route_model`; strict argument sampling and the validated retry loop still reject missing or invalid verdicts. Bedrock keeps its separate `reasoning` mapping, bounded token budgets with answer room, and automatic tool choice when reasoning is requested. Small option mappings remain package-local, avoiding internal pi-ai runtime imports unavailable in bundled Pi. Google's raw API receives supported uppercase family levels or numeric 2.5 budgets, with answer room in the shared output ceiling. Providers without strict schema support fail visibly rather than silently relaxing the schema contract. OpenAI Responses (including Azure Responses) receives flat `{ type: "function", name: "route_model" }`; Chat Completions keeps its nested function form; Codex Responses APIs, including provider-specific IDs ending in `codex-responses`, receive `"required"`. It makes at most two 60-second attempts. Missing or invalid tool output and provider errors consume an attempt; user cancellation does not.
 
 ## Direct routes
 

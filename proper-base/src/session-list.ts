@@ -20,6 +20,8 @@ import { open, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
+import { SessionSelectorComponent } from "@earendil-works/pi-coding-agent";
+
 import { projectKey } from "./store.ts";
 
 /** Structurally compatible with pi's `SessionInfo`. */
@@ -448,12 +450,18 @@ export function createSessionListers(agentDir: string) {
  * was handed restores full-text search without the loader ever waiting for it.
  * Sessions arrive newest-first, which is the order the picker shows them in.
  */
-export function backfillSearchText(sessions: SessionInfo[]): () => void {
+export function backfillSearchText(
+	sessions: SessionInfo[],
+	onUpdate?: (session: SessionInfo) => void,
+): () => void {
 	let cancelled = false;
 	void (async () => {
 		for (const session of sessions) {
 			if (cancelled) return;
-			session.allMessagesText = await readSearchText(session.path);
+			const text = await readSearchText(session.path);
+			if (cancelled) return;
+			session.allMessagesText = text;
+			onUpdate?.(session);
 		}
 	})();
 	return () => {
@@ -461,37 +469,140 @@ export function backfillSearchText(sessions: SessionInfo[]): () => void {
 	};
 }
 
-type Listers = { list: unknown; listAll: unknown };
+type Lister = (...args: never[]) => unknown;
+type Listers = { list: Lister; listAll: Lister };
+type SessionListSurface = {
+	allSessions: SessionInfo[];
+	showCwd: boolean;
+	filteredSessions: Array<{ session: SessionInfo }>;
+	selectedIndex: number;
+	getSelectedSessionPath(): string | undefined;
+	setSessions(sessions: SessionInfo[], showCwd: boolean): void;
+};
+type SelectorSurface = {
+	sessionList: SessionListSurface;
+	requestRender(): void;
+};
+type SessionListController = { restore(): void };
 
 const FAST_SESSION_LIST = Symbol.for("pi-proper-base.fast-session-list");
+const SELECTOR_REFRESH = Symbol.for("pi-proper-base.session-selector-refresh");
+type TaggedListers = Listers & {
+	[FAST_SESSION_LIST]?: SessionListController | true;
+};
+type TaggedSelectorPrototype = {
+	handleInput(data: string): void;
+	[SELECTOR_REFRESH]?: SessionListController;
+};
 
-/**
- * Point pi's session listing at the fast readers.
- *
- * Pi's `SessionManager` is a module singleton reached through static property
- * lookups, so replacing the two listing methods covers `/resume` without
- * touching the picker. Installation is idempotent: the class outlives every
- * session, so a reload must not stack wrappers.
- */
-export function installFastSessionList(target: object, agentDir: string): void {
-	const tagged = target as Listers & { [FAST_SESSION_LIST]?: true };
-	if (tagged[FAST_SESSION_LIST]) return;
+/** Install fast listers plus live query refresh, with reload-safe ownership. */
+export function installFastSessionList(
+	target: object,
+	agentDir: string,
+): () => void {
+	const tagged = target as TaggedListers;
+	const previous = tagged[FAST_SESSION_LIST];
+	if (previous && previous !== true) previous.restore();
+	const selectorPrototype =
+		SessionSelectorComponent.prototype as unknown as TaggedSelectorPrototype;
+	selectorPrototype[SELECTOR_REFRESH]?.restore();
+	const originalList = tagged.list;
+	const originalListAll = tagged.listAll;
+	const originalHandleInput = selectorPrototype.handleInput;
 	const fast = createSessionListers(agentDir);
+	const selectors = new Set<WeakRef<SelectorSurface>>();
+	const seen = new WeakSet<SelectorSurface>();
+	const pending = new Set<SessionInfo>();
+	let installed = true;
+	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let cancelBackfill: (() => void) | undefined;
+
+	const refreshMatchingQueries = () => {
+		refreshTimer = undefined;
+		for (const reference of selectors) {
+			const selector = reference.deref();
+			if (!selector) {
+				selectors.delete(reference);
+				continue;
+			}
+			const list = selector.sessionList;
+			if (
+				!list ||
+				!Array.isArray(list.allSessions) ||
+				!list.allSessions.some((session) => pending.has(session)) ||
+				typeof list.setSessions !== "function"
+			)
+				continue;
+			const selectedPath = list.getSelectedSessionPath?.();
+			list.setSessions(list.allSessions, list.showCwd);
+			if (selectedPath && Array.isArray(list.filteredSessions)) {
+				const selectedIndex = list.filteredSessions.findIndex(
+					(item) => item.session.path === selectedPath,
+				);
+				if (selectedIndex >= 0) list.selectedIndex = selectedIndex;
+			}
+			selector.requestRender?.();
+		}
+		pending.clear();
+	};
+	const scheduleRefresh = (updated: SessionInfo) => {
+		pending.add(updated);
+		refreshTimer ??= setTimeout(refreshMatchingQueries, 16);
+		refreshTimer.unref();
+	};
 	const served = (sessions: SessionInfo[]): SessionInfo[] => {
-		// Only the newest listing is worth completing; a rescan replaces it.
+		if (!installed) return sessions;
 		cancelBackfill?.();
-		cancelBackfill = backfillSearchText(sessions);
+		cancelBackfill = backfillSearchText(sessions, scheduleRefresh);
 		return sessions;
 	};
-	tagged.list = (
+	const list = (
 		cwd: string,
 		sessionDir?: string,
 		onProgress?: ProgressCallback,
-	) => fast.list(cwd, sessionDir, onProgress).then(served);
-	tagged.listAll = (
+	) =>
+		installed
+			? fast.list(cwd, sessionDir, onProgress).then(served)
+			: Reflect.apply(originalList, target, [cwd, sessionDir, onProgress]);
+	const listAll = (
 		sessionDirOrProgress?: string | ProgressCallback,
 		onProgress?: ProgressCallback,
-	) => fast.listAll(sessionDirOrProgress, onProgress).then(served);
-	tagged[FAST_SESSION_LIST] = true;
+	) =>
+		installed
+			? fast.listAll(sessionDirOrProgress, onProgress).then(served)
+			: Reflect.apply(originalListAll, target, [
+					sessionDirOrProgress,
+					onProgress,
+				]);
+	function handleInput(this: SelectorSurface, data: string): void {
+		if (installed && !seen.has(this)) {
+			seen.add(this);
+			selectors.add(new WeakRef(this));
+		}
+		originalHandleInput.call(this, data);
+	}
+	const controller: SessionListController = {
+		restore() {
+			installed = false;
+			cancelBackfill?.();
+			clearTimeout(refreshTimer);
+			pending.clear();
+			selectors.clear();
+			if (tagged[FAST_SESSION_LIST] !== controller) return;
+			if (tagged.list === (list as Lister)) tagged.list = originalList;
+			if (tagged.listAll === (listAll as Lister))
+				tagged.listAll = originalListAll;
+			if (selectorPrototype.handleInput === handleInput)
+				selectorPrototype.handleInput = originalHandleInput;
+			delete tagged[FAST_SESSION_LIST];
+			if (selectorPrototype[SELECTOR_REFRESH] === controller)
+				delete selectorPrototype[SELECTOR_REFRESH];
+		},
+	};
+	tagged.list = list as Lister;
+	tagged.listAll = listAll as Lister;
+	selectorPrototype.handleInput = handleInput;
+	tagged[FAST_SESSION_LIST] = controller;
+	selectorPrototype[SELECTOR_REFRESH] = controller;
+	return () => controller.restore();
 }

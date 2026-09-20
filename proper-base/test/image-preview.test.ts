@@ -16,33 +16,22 @@ import sharp from "sharp";
 import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { installEditorNavigation } from "../src/editor-navigation.ts";
-import { installImagePreview, planPreviewImage } from "../src/image-preview.ts";
+import {
+	installImagePreview,
+	previewPixelBounds,
+} from "../src/image-preview.ts";
 import { readPrompts, storePath } from "../src/store.ts";
 
 const PNG_1X1 = Buffer.from(
-	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII=",
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==",
 	"base64",
 );
 
-test("large previews use bounded thumbnail payloads", () => {
+test("preview preparation uses bounded pixel dimensions", () => {
 	const previousCells = getCellDimensions();
-	const largePng = Buffer.from(PNG_1X1);
-	largePng.writeUInt32BE(4096, 16);
-	largePng.writeUInt32BE(2160, 20);
 	setCellDimensions({ widthPx: 9, heightPx: 18 });
-
 	try {
-		assert.deepEqual(planPreviewImage("image/png", largePng), {
-			image: undefined,
-			thumbnail: { widthPx: 216, heightPx: 108 },
-		});
-		assert.deepEqual(planPreviewImage("image/png", PNG_1X1), {
-			image: {
-				base64: PNG_1X1.toString("base64"),
-				mimeType: "image/png",
-			},
-			thumbnail: undefined,
-		});
+		assert.deepEqual(previewPixelBounds(), { widthPx: 216, heightPx: 108 });
 	} finally {
 		setCellDimensions(previousCells);
 	}
@@ -283,6 +272,64 @@ test("thumbnail completion promotes path fallback to Kitty preview", async () =>
 	}
 });
 
+test("cancelled preview work cannot publish a stale image", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "proper-base-image-cancel-"));
+	const imagePath = join(
+		dir,
+		"pi-clipboard-aaaaaaaa-bbbb-cccc-dddd-cacce1cacce1.png",
+	);
+	await writeFile(imagePath, PNG_1X1);
+	let text = "";
+	let complete:
+		| ((image: { base64: string; mimeType: string }) => void)
+		| undefined;
+	let cancelled = false;
+	let renders = 0;
+	const editor = {
+		onChange: undefined as ((value: string) => void) | undefined,
+		getText: () => text,
+		setText(value: string) {
+			text = value;
+			this.onChange?.(value);
+		},
+		render: () => [text],
+		invalidate() {},
+	};
+	const tui = {
+		children: [editor],
+		terminal: { rows: 24 },
+		requestRender() {
+			renders++;
+		},
+		showOverlay() {
+			return { hide() {} };
+		},
+	};
+	try {
+		const controller = installImagePreview(
+			editor,
+			tui as never,
+			undefined,
+			(_path, _width, _height, done) => {
+				complete = done as typeof complete;
+				return () => {
+					cancelled = true;
+				};
+			},
+		);
+		editor.setText(imagePath);
+		assert.equal(text, "[image 1]");
+		editor.setText("");
+		controller?.clear();
+		assert.equal(cancelled, true);
+		const before = renders;
+		complete?.({ base64: PNG_1X1.toString("base64"), mimeType: "image/png" });
+		assert.equal(renders, before);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("sharp thumbnails supported clipboard formats", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "proper-base-image-sharp-"));
 	const previousCapabilities = getCapabilities();
@@ -427,12 +474,16 @@ test("focus return forces Kitty preview retransmission", async () => {
 	try {
 		const controller = installImagePreview(editor, tui as never);
 		editor.insertTextAtCursor(imagePath);
+		for (let attempts = 0; attempts < 100; attempts++) {
+			if (overlayComponent?.render(200).join("\n").includes("\x1b_G")) break;
+			await new Promise<void>((resolve) => setTimeout(resolve, 10));
+		}
 		assert.ok(overlayComponent?.render(200).join("\n").includes("\x1b_G"));
 
 		assert.deepEqual(tui.handleViewportInput("\x1b[I"), { consume: true });
 		assert.deepEqual(focusInputs, ["\x1b[I"]);
 		assert.equal(tui.uploadedKittyImages.size, 0);
-		assert.deepEqual(renderForces, [true]);
+		assert.equal(renderForces.at(-1), true);
 
 		controller?.dispose();
 		assert.equal(tui.handleViewportInput, originalFocusInput);
@@ -623,6 +674,7 @@ test("clipboard image markers render Kitty previews and expand before submission
 			imageProtocol: getCapabilities().images,
 			children: [editor],
 			terminal: { rows: 24 },
+			requestRender() {},
 			getFocusedComponent: () => editor,
 			showOverlay(component: typeof overlayComponent, options: any) {
 				overlayComponent = component;
@@ -650,6 +702,10 @@ test("clipboard image markers render Kitty previews and expand before submission
 		assert.equal(overlayOptions.anchor, "bottom-left");
 		assert.equal(overlayOptions.nonCapturing, true);
 		assert.equal(tui.imageProtocol, "kitty");
+		for (let attempts = 0; attempts < 100; attempts++) {
+			if (overlayComponent.render(200).join("\n").includes("\x1b_G")) break;
+			await new Promise<void>((resolve) => setTimeout(resolve, 10));
+		}
 		const kittyOverlay = overlayComponent.render(200).join("\n");
 		assert.ok(kittyOverlay.includes("\x1b_G"));
 

@@ -32,6 +32,14 @@ The judge fast fixture verifies that `judge.fast` controls the `service_tier` fi
 
 It runs the judge under both `cliproxyapi-codex-responses` and `openai-codex-responses` and requires `toolChoice: "required"` for each, pinning the suffix match that covers every provider flavour of the Codex Responses API.
 
+## Provider payload fixtures
+
+`test/judge-provider-payload.test.ts` drives real Pi serializers through the router input handler. `onPayload` stops before network I/O.
+
+The probes need no credentials and normalize contexts through Pi's public API before serialization. They verify that leading system messages preserve the prompt and `route_model` declaration, not only request options. Responses' forced tool serializes as flat `{ type: "function", name: "route_model" }`.
+
+Anthropic budget thinking reserves answer room and uses automatic tool choice; adaptive models honor their `thinkingLevelMap` effort, and managed-effort models retain the host's adaptive/high output policy while receiving configured effort in the message policy. Bedrock budget thinking also uses automatic tool choice and reserves answer room. Google fixtures assert supported uppercase thinking levels and a shared output ceiling large enough for reasoning and the verdict.
+
 ## Legacy auth config migration
 
 Legacy router-owned provider auth fields must not survive configuration loading.
@@ -110,6 +118,12 @@ The non-CPA config fixture verifies that CPA-only controls disappear when Pi has
 
 It records the real `/llm-router-config` menu, requires quota and management-key actions to be absent, opens the JSON editor, and requires `cpaBase`, quota, and management-key fields to be omitted. Its TUI picker case proves Up wraps from the first menu entry to `Done`, and Enter accepts the stored direct judge model and `off` fast setting rather than the first displayed choice.
 
+## Startup and resume fixture
+
+The startup fixture uses Pi's real persisted `SessionManager` to simulate CLI `-c`/`--session` startup.
+
+A loaded conversation retains its restored model despite `reason: "startup"`; an empty session and one carrying only stale model and system-prompt metadata arm `llm-router/auto`.
+
 ## Routing switch fixture
 
 The routing switch fixture verifies the global config flag and the per-session environment override through the real menu handler and event hooks.
@@ -118,7 +132,7 @@ It disables routing from an armed session and requires the first menu entry to b
 
 ## Ultra compatibility fixtures
 
-`test/ultra-thinking.test.ts` exercises the reload-safe prototype helpers against fake classes without editing pi internals. Its payload check imports the Pi 0.85.1 runtime pinned by the package lock.
+`test/ultra-thinking.test.ts` exercises the reload-safe prototype helpers against fake classes without editing pi internals. Its payload check imports the Pi 0.86.0 runtime resolved in the package lock.
 
 It verifies the shared thinking-level list ends in `ultra`, model capability filtering requires a non-empty `thinkingLevelMap.ultra`, native available-level discovery appends `ultra` only for supported models, unsupported transitions clamp to the highest available level, repeated installation does not stack patches, and the editor border reuses pi's maximum-effort theme color. A resolution fixture asserts the module-load shim reached the pinned runtime's real `AgentSession` and `Theme` classes through the public package export — the global patch markers are present and reinstallation takes the idempotent no-op path. A second fixture captures Pi's bundled OpenAI Responses payload before network I/O and verifies the model mapping sends `reasoning.effort: "ultra"`.
 
@@ -138,13 +152,13 @@ The harness performs no provider call and owns no credential. Pi runtime integra
 
 Strict compiler, lint, and coverage checks prevent new dynamic-data shortcuts from weakening router guarantees.
 
-`npm run typecheck` enables strict mode, exact optional properties, unchecked-index diagnostics, unused checks, fallthrough checks, and no-emit compilation. Exact development pins for the coding-agent and TUI host packages resolve the extension's direct Pi imports, while runtime installation uses peer instances supplied by Pi. Biome rejects explicit `any` in runtime source. `npm run test:coverage` requires at least 40% lines, 55% branches, and 52% functions from the focused unit fixtures. Package `prepack` runs `test:unit` plus type checking; the separate smoke is also deterministic and offline.
+`npm run typecheck` enables strict mode, exact optional properties, unchecked-index diagnostics, unused checks, fallthrough checks, and no-emit compilation. Development dependencies follow latest coding-agent, pi-ai, and TUI releases, with tested resolutions recorded in the lockfile. Runtime installation uses peer instances supplied by Pi; coding-agent and pi-ai must be 0.86 or newer. Biome rejects explicit `any` in runtime source. `npm run test:coverage` requires at least 40% lines, 55% branches, and 52% functions from the focused unit fixtures. Package `prepack` runs `test:unit` plus type checking; the separate smoke is also deterministic and offline.
 
 ## Current coverage gaps
 
 The smoke harness does not exercise every extension behavior.
 
-There are no automated fixtures for successful management API usage parsing, cache expiry and cached failures, config schema errors, malformed corpus handling, exact threshold equality, judge retries, network timeouts, Esc cancellation, repeated or empty sentinels, router-command namespace bypass, notice text, full pi dispatch ordering, failed `setModel`, complete native thinking-picker interaction, live override availability, override-picker persistence, judge-picker persistence, masked secret input, JSON editor saving, or placeholder safety when models are absent.
+There are no automated fixtures for successful management API usage parsing, cache expiry and cached failures, config schema errors, malformed corpus handling, exact threshold equality, judge retries, network timeouts, Esc cancellation, repeated or empty sentinels, router-command namespace bypass, notice text, full pi dispatch ordering, failed `setModel`, complete native thinking-picker interaction, live override availability, override-picker persistence, judge-picker persistence, masked secret input, JSON editor saving, or placeholder safety when models are absent. Provider payload fixtures stop before transport and do not cover live provider acceptance.
 
 The offline smoke proves one integrated verdict but does not instantiate a complete Pi `AgentSession`. Changes in uncovered host-integration areas need focused manual checks or new fixtures.
 

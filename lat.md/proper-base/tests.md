@@ -16,7 +16,7 @@ They verify header fields, message counts that ignore non-message entries, the f
 
 A descriptor case reads forty sessions whose bodies are never reached and requires the process's open descriptors not to grow, since abandoning a line reader does not close its stream; it is skipped where `/proc/self/fd` is unavailable.
 
-Lister cases prove newest-first ordering, that non-JSONL files are ignored, that a shared custom directory is filtered to the current working directory while the project's own directory is not, and that `listAll` spans project directories and reports progress. A backfill case waits for `allMessagesText` to arrive on the object the picker already holds, and an installation case proves both static methods are replaced exactly once and serve rows before search text lands. A surface case installs onto pi's real `SessionManager` and lists a temporary directory through it, so a rename or argument reorder in pi fails loudly instead of leaving the picker quietly slow.
+Lister cases prove newest-first ordering, that non-JSONL files are ignored, that a shared custom directory is filtered to the current working directory while the project's own directory is not, and that `listAll` spans project directories and reports progress. A backfill case waits for `allMessagesText` to arrive on the object the picker already holds. A real Pi `SessionSelectorComponent` enters a query before backfill completes, then proves the newly matching row appears while the prior selected session, query-driven relevance order, and current filter survive. Installation cases prove reload takeover, stale-disposer safety, restoration of both static methods, and the real `SessionManager` argument surface.
 
 ## Model-preserving clear fixture
 
@@ -26,9 +26,9 @@ It proves the command passes no copied session state into `ctx.newSession()`, us
 
 ## Sticky defaults fixture
 
-Temporary agent directories verify that a selected model and thinking level reach Pi's startup defaults without disturbing the rest of `settings.json`.
+A Pi 0.86.0 host fixture creates a real `AgentSession`, `SettingsManager`, `ModelRuntime`, resource loader, and extension lifecycle around the compatibility adapter.
 
-Model cases prove a selection replaces both keys while unrelated settings and Pi's two-space format survive, a model with no saved default gains both keys, and `llm-router/auto` is rejected so the router's own startup selection cannot displace a usable default. Thinking cases prove a chosen level replaces `defaultThinkingLevel`, a level clamped to a weaker model is recorded as it stands, a level selected with no active model is still recorded, and a level matching that model's `modelThinkingLevels` entry is left out of the global default while the same level on a model without a rule is stored. Selections matching the stored value leave the file byte-identical, `"stickyDefaults": false` in `proper-base.json` disables both handlers while leaving the sibling rail key alone, a missing or damaged config reads as enabled, and a missing or damaged settings file is neither replaced nor created.
+It proves an explicit thinking choice updates the live settings cache and the next model-switch resolver reads it; an automatic switch to a non-reasoning model clamps the session to `off` without redefining the global preference; an explicit `off` persists even when Pi emits no event; a per-model level remains model-local; and selecting `llm-router/auto` persists neither its model identity nor its forced `off`. It also exercises `session_start` activation and `session_shutdown` restoration. A focused config case proves `"stickyDefaults": false` remains independent of sibling proper-base choices.
 
 ## History fixtures
 
@@ -62,7 +62,7 @@ A session integration fixture verifies Scribe Kitty previews and text fallback r
 
 It starts with text-only capabilities, loads proper-base under `TERM_PROGRAM=Scribe`, and verifies the Kitty and OSC 8 hyperlink capabilities are enabled before the fake fullscreen renderer snapshots them. A real one-pixel PNG becomes `[image 1]`; the non-capturing overlay emits a Kitty image sequence, then a forced text-only capability renders the marker and source path without Kitty escapes. Submission expands the marker so Pi's downstream handler receives the original path.
 
-A thumbnail fixture gives the dimension parser a 4096-by-2160 PNG header and proves the plan is bounded to the 24-by-6-cell pixel envelope while an already-small image bypasses conversion. An asynchronous fixture injects a deterministic thumbnailer, verifies Pi's braille loader renders without exposing the source path, then observes the completed bounded PNG replace it with a Kitty preview. Waiting past one animation interval proves the loader timer stopped after completion.
+A bounds fixture derives the 24-by-6-cell pixel envelope without opening a source file. An asynchronous fixture injects deterministic preparation, verifies Pi's braille loader renders without exposing the source path, then observes the completed bounded PNG replace it with a Kitty preview. Waiting past one animation interval proves the loader timer stopped after completion, while a cancellation fixture completes work after marker removal and proves the stale result cannot repaint.
 
 A real `sharp` fixture generates oversized PNG, JPEG, GIF, and WebP files, passes each through the default runtime thumbnailer, and requires every marker to promote from the loader to a Kitty sequence. A lockfile fixture verifies `@img/sharp-darwin-arm64` and `@img/sharp-darwin-x64` remain optional Darwin artifacts with matching CPU selectors, preventing Linux lock regeneration from silently dropping macOS installation support.
 
@@ -140,15 +140,15 @@ The fixture builds Pi's document/dock shape under a layout root, installs the wr
 
 ## Base keybinding fixture
 
-A session integration fixture applies the real Pi 0.85.1 `KeybindingsManager` to the installed editor factory.
+A session integration fixture applies the real Pi 0.86.0 `KeybindingsManager` to the installed editor factory.
 
-It verifies Ctrl+V and Ctrl+Shift+V both match Pi's clipboard paste action without removing an existing Alt+V alias. Alt+Enter matches prompt newline and no longer matches follow-up queueing, a user's own newline alias survives beside it, and proper-base adds no Shift+Enter of its own — under a user override that chord stops matching, while Pi's untouched defaults keep both Shift+Enter and Ctrl+J. Fullscreen transcript actions claim Ctrl+Shift+Home, Ctrl+Shift+End, Ctrl+Shift+PageUp, and Ctrl+Shift+PageDown instead of unmodified or Shift-only keys; the editor retains its native unmodified bindings; and modern modifier sequences match the intended actions. Navigation fixtures verify a recalled prompt ends at line 0, column 0; Home first reaches a soft-wrapped visible-row start and then the full prompt start, including across a hard newline; and End reaches the logical line end and then the full prompt end. They also prove native reload reapplies current bindings without losing unrelated user values, repeated installation remains idempotent, and the terminal writer stays untouched for Pi's native mouse handling.
+It verifies Ctrl+V and Ctrl+Shift+V both match Pi's clipboard paste action without removing an existing Alt+V alias. Alt+Enter matches prompt newline and no longer matches follow-up queueing, a user's own newline alias survives beside it, and proper-base adds no Shift+Enter of its own; under a user override that chord stops matching, while Pi's untouched defaults keep both Shift+Enter and Ctrl+J. Fullscreen transcript actions claim Ctrl+Shift+Home, Ctrl+Shift+End, Ctrl+Shift+PageUp, and Ctrl+Shift+PageDown instead of unmodified or Shift-only keys; the editor retains its native unmodified bindings; and modern modifier sequences match the intended actions. Navigation fixtures verify a recalled prompt ends at line 0, column 0; Home first reaches a soft-wrapped visible-row start and then the full prompt start, including across a hard newline; and End reaches the logical-line end and then the full prompt end. Reload cases prove native reload reapplies current bindings without losing unrelated user values, fresh code takes over the reload wrapper, a stale disposer cannot remove it, and shutdown restores the exact prior reload method and user bindings.
 
 ## Wheel scroll fixture
 
 Pure resolution and install cases pin the wheel step's default, override grammar, and fail-open renderer guard.
 
-Resolution returns 3 for an absent, empty, non-numeric, zero, or negative `PROPER_WHEEL_SCROLL_LINES` and the parsed value for a positive integer. Installation patches only an object already carrying a numeric `wheelScrollLines`, floors fractional input, and leaves a shape without the field untouched — the regular-mode renderer never gains the property.
+Resolution returns 3 for an absent, empty, non-numeric, zero, or negative `PROPER_WHEEL_SCROLL_LINES` and the parsed value for a positive integer. Installation patches only an object already carrying a numeric `wheelScrollLines`, floors fractional input, and leaves a shape without the field untouched. A takeover case proves a newer controller wins, its predecessor's stale disposer is inert, and the owner restores Pi's original value.
 
 ## Overlay scroll fixture
 
@@ -240,7 +240,7 @@ An errored assistant message whose text matches the CPA `empty_stream` pattern o
 
 Fast-mode fixtures verify the session and global tier scopes against a temporary agent directory holding provider config and catalog files.
 
-Cases prove a bare `/fast` submission is the only session toggle text; session Fast adds `service_tier: "priority"` for capable models of the configured provider while already-injected, non-object, foreign-provider, and non-capable payloads stay untouched; Fast off strips exactly the priority tier while other tier values survive; and the session reset restores the default. Global cases prove one overlay's toggle reaches another instance's next request through the shared config file, preserves unrelated keys and the provider's file format, and honors `CLIPROXYAPI_FAST` and `CLIPROXYAPI_PROVIDER_ID` grammar including invalid-value fallback. A rewritten catalog cache refreshes the capability set by modification time and a missing cache means no capable models. Feedback cases name the scope, warn on an incapable current model, and report the surviving other scope on disable. A recorder case proves the consume hook swallows `/fast` before recording or forwarding while other text passes through.
+Cases prove a bare `/fast` submission is the only session toggle text; session Fast adds `service_tier: "priority"` for capable models of the configured provider while already-injected, non-object, foreign-provider, and non-capable payloads stay untouched; Fast off strips exactly the priority tier while other tier values survive; and the session reset restores the default. Global cases prove one overlay's toggle reaches another instance's next request through the shared config file, preserves unrelated keys and the provider's file format, and honors `CLIPROXYAPI_PROVIDER_ID`. Valid `CLIPROXYAPI_FAST` values make both the storage method and the real `/fast-global` command refuse the toggle, with command feedback naming the effective override; invalid values still fall back to the file. A rewritten catalog cache refreshes by modification time, a missing cache means no capable models, and recorder coverage proves `/fast` is swallowed before recording.
 
 ## Commit guard fixtures
 
@@ -262,8 +262,8 @@ Strict compiler and coverage gates keep test fixtures from hiding unsafe assumpt
 
 ## Coverage boundary
 
-The suite does not instantiate pi; one image-history fixture instantiates pi-tui's real `Editor` while lifecycle fixtures use minimal fakes.
+Host-boundary fixtures instantiate Pi 0.86.0's real session, settings, model, selector, manager, extension-runner, and editor surfaces.
 
-The image-history fixture exercises native history state and Up handling. Session-title, history-seeding, autocomplete, early-cancellation, fullscreen-keybinding, and footer fixtures run the extension's complete lifecycle callbacks against minimal fake API and component trees, and the questionnaire fixture calls its registered `tool_result` handler directly.
+The sticky-default fixture uses `AgentSession`, `SettingsManager`, `ModelRuntime`, the resource loader, and extension runner. Session search uses Pi's selector and manager, while image history uses pi-tui's `Editor`. These cover settings-cache resolution, lifecycle teardown, selector refiltering, native history state, and Up handling. Session-title, history-seeding, autocomplete, early-cancellation, fullscreen-keybinding, and footer fixtures run the extension's complete lifecycle callbacks against minimal fake API and component trees, and the questionnaire fixture calls its registered `tool_result` handler directly.
 
 Package discovery, real terminal modifier reporting, real terminal color fidelity, selection key handling, replacement footers, built-in modal selectors, and interaction with later-loaded extensions remain startup or manual integration checks. Pure history and storage modules cover the ordering and persistence rules that carry the highest regression risk.

@@ -18,7 +18,9 @@ Releases run from the repository root with `./tools/release-me/release.sh bump <
 
 ## User settings boundary
 
-proper-base does not write Pi settings during package installation or runtime, and its npm package has no install-time scripts; only the `prepack` validation gate remains.
+proper-base has no install-time scripts. Runtime sticky defaults use Pi's live `SettingsManager`; `"stickyDefaults": false` disables those writes.
+
+Pi therefore owns its cache, field-level locked save, error handling, and preservation of unrelated settings.
 
 The complete environment setup in [PI_SETUP.md](../../PI_SETUP.md) asks the setup agent to merge `subagents.agentOverrides.worker.defaultContext: fresh` when no worker override exists. Existing worker overrides remain user-owned because they may deliberately select forked context.
 
@@ -28,9 +30,9 @@ Fresh worker context avoids replaying the parent transcript and its token cost f
 
 Node 22.19 or newer and the Pi coding-agent peer API are required.
 
-Kitty previews use the declared `sharp` 0.35.3 runtime dependency when a source exceeds the 24-by-6-cell pixel envelope. `sharp` requires Node 20.9+ and publishes prebuilt binaries for macOS arm64, macOS x64 10.15+, and supported glibc/musl Linux targets; proper-base's Node 22.19+ floor satisfies its runtime contract. The package lock retains both Darwin architecture artifacts plus their matching libvips packages, so npm selects the host artifact during production installation. Conversion runs asynchronously with a five-second pipeline timeout; failure leaves the safe marker-and-path text fallback instead of sending the full source image.
+Kitty previews use the declared `sharp` 0.35.3 runtime dependency for asynchronous metadata and source loading at every size, resizing sources that exceed the 24-by-6-cell pixel envelope. `sharp` requires Node 20.9+ and publishes prebuilt binaries for macOS arm64, macOS x64 10.15+, and supported glibc/musl Linux targets; proper-base's Node 22.19+ floor satisfies its runtime contract. The package lock retains both Darwin architecture artifacts plus their matching libvips packages, so npm selects the host artifact during production installation. Metadata probing, source loading, and conversion run asynchronously with five-second pipeline timeouts; the editor callback only registers the marker and cancellable work. Failure leaves the safe marker-and-path text fallback instead of sending the full source image.
 
-The extension uses `CustomEditor`, `SessionManager`, `getAgentDir`, session lifecycle events, editor factory APIs, pi-tui overlays and wrapping, and ANSI truecolor footer decoration. The Pi host supplies both imported core packages through `peerDependencies` with `*` ranges, while package-local dev dependencies pin Pi, pi-tui, TypeScript, and Node types for diagnostics. Pi 0.85.0 shipped its experimental server and client code in the package root, so a bare `import "@earendil-works/pi-coding-agent"` in a fresh checkout failed on the undeclared `@earendil-works/pi-server` and needed an extra dev pin (upstream issue 9132); Pi 0.85.1 made that code source-only, so the pin is gone and the SDK entry loads on its declared dependencies alone. Tests use Node's built-in runner.
+The extension uses `CustomEditor`, `SessionManager`, `getAgentDir`, session lifecycle events, editor factory APIs, pi-tui overlays and wrapping, and ANSI truecolor footer decoration. The Pi host supplies both imported core packages through `peerDependencies` with `*` ranges, while package-local dev dependencies follow latest Pi and pi-tui, with resolved versions recorded in the lockfile; TypeScript and Node declarations remain pinned for diagnostics. Pi 0.85.0 shipped its experimental server and client code in the package root, so a bare `import "@earendil-works/pi-coding-agent"` in a fresh checkout failed on the undeclared `@earendil-works/pi-server` and needed an extra dev pin (upstream issue 9132); Pi 0.85.1 made that code source-only, so the pin is gone and the SDK entry loads on its declared dependencies alone. Tests use Node's built-in runner.
 
 Pinned prompt scrolling uses pi's native `fullscreen` TUI mode. Users enable it through `/settings` or `tuiMode` in `~/.pi/agent/settings.json`; proper-base does not replace the transcript renderer. Ctrl+Shift-modified Home, End, PageUp, and PageDown require a terminal that reports modifiers distinctly through Kitty keyboard protocol or compatible xterm sequences.
 

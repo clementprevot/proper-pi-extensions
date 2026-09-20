@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const originalHome = process.env.HOME;
 const testHome = mkdtempSync(join(tmpdir(), "proper-llm-router-test-"));
@@ -409,6 +410,86 @@ test("config UI hides CPA-only controls and JSON fields without CPA", async () =
 	}
 });
 
+// @lat: [[lat.md/proper-llm-router/tests#Verification#Startup and resume fixture]]
+test("startup preserves persisted conversations but arms new and stale sessions", async () => {
+	let sessionStart:
+		| ((event: { reason: string }, ctx: any) => Promise<void>)
+		| undefined;
+	const switches: string[] = [];
+	llmRouter({
+		on(name: string, handler: typeof sessionStart) {
+			if (name === "session_start") sessionStart = handler;
+		},
+		registerCommand() {},
+		async setModel(model: { provider: string; id: string }) {
+			switches.push(`${model.provider}/${model.id}`);
+			return true;
+		},
+	} as unknown as Parameters<typeof llmRouter>[0]);
+	assert.ok(sessionStart);
+
+	const sessionDir = join(testHome, "sessions");
+	mkdirSync(sessionDir, { recursive: true });
+	const prior = SessionManager.create(testHome, sessionDir);
+	prior.appendMessage({
+		role: "user",
+		content: "already routed",
+		timestamp: 1,
+	});
+	prior.appendMessage({
+		role: "assistant",
+		content: [],
+		api: "openai-codex-responses",
+		provider: "openai-codex",
+		model: "gpt-5.6-terra",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: 2,
+	});
+	const priorFile = prior.getSessionFile();
+	assert.ok(priorFile);
+	const restored = SessionManager.open(priorFile);
+	const auto = { provider: "llm-router", id: "auto" };
+	const terra = { provider: "openai-codex", id: "gpt-5.6-terra" };
+	const ctxFor = (sessionManager: SessionManager) => ({
+		model: terra,
+		sessionManager,
+		modelRegistry: {
+			find: (provider: string, id: string) =>
+				[auto, terra].find(
+					(model) => model.provider === provider && model.id === id,
+				),
+		},
+	});
+
+	// Pi CLI -c/--session starts the loaded session with reason "startup".
+	await sessionStart({ reason: "startup" }, ctxFor(restored));
+	assert.deepEqual(switches, []);
+
+	const fresh = SessionManager.create(testHome, sessionDir);
+	await sessionStart({ reason: "startup" }, ctxFor(fresh));
+	assert.deepEqual(switches, ["llm-router/auto"]);
+
+	// A persisted model change without conversation content is still a fresh
+	// session; stale router state must not suppress automatic arming.
+	const stale = SessionManager.create(testHome, sessionDir);
+	stale.appendModelChange("openai-codex", "gpt-5.6-terra");
+	stale.appendMessage({
+		role: "system",
+		content: "session setup only",
+		timestamp: 0,
+	});
+	await sessionStart({ reason: "startup" }, ctxFor(stale));
+	assert.deepEqual(switches, ["llm-router/auto", "llm-router/auto"]);
+});
+
 // @lat: [[lat.md/proper-llm-router/tests#Verification#Routing switch fixture]]
 test("routing switch disables globally and re-enables per session", async () => {
 	let configHandler: ((args: string, ctx: any) => Promise<void>) | undefined;
@@ -446,6 +527,7 @@ test("routing switch disables globally and re-enables per session", async () => 
 	) => ({
 		hasUI: true,
 		model: current,
+		sessionManager: { getBranch: () => [] },
 		modelRegistry: {
 			getAvailable: () => models,
 			find: (provider: string, id: string) =>
@@ -459,8 +541,12 @@ test("routing switch disables globally and re-enables per session", async () => 
 			},
 		},
 	});
+	const subagentChild = process.env.PI_SUBAGENT_CHILD;
+	const fanoutChild = process.env.PI_SUBAGENT_FANOUT_CHILD;
 	delete process.env.LLM_ROUTER_ON;
 	delete process.env.LLM_ROUTER_OFF;
+	delete process.env.PI_SUBAGENT_CHILD;
+	delete process.env.PI_SUBAGENT_FANOUT_CHILD;
 	try {
 		// off globally: armed session moves to the fallback, startup no longer
 		// forces auto, sentinel help disappears
@@ -515,6 +601,10 @@ test("routing switch disables globally and re-enables per session", async () => 
 		);
 	} finally {
 		delete process.env.LLM_ROUTER_ON;
+		if (subagentChild === undefined) delete process.env.PI_SUBAGENT_CHILD;
+		else process.env.PI_SUBAGENT_CHILD = subagentChild;
+		if (fanoutChild === undefined) delete process.env.PI_SUBAGENT_FANOUT_CHILD;
+		else process.env.PI_SUBAGENT_FANOUT_CHILD = fanoutChild;
 		saveConfig({ ...loadConfig(configPath), enabled: true });
 	}
 });

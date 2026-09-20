@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
 import { basename, extname, isAbsolute } from "node:path";
 import {
 	type Component,
 	getCapabilities,
 	getCellDimensions,
-	getImageDimensions,
 	Image,
 	type ImageTheme,
 	Loader,
@@ -75,11 +73,6 @@ type Preview = {
 	cancelThumbnail: (() => void) | undefined;
 };
 
-type PreviewImagePlan = {
-	image: PreviewImage | undefined;
-	thumbnail: { widthPx: number; heightPx: number } | undefined;
-};
-
 export type ImagePreviewController = {
 	prepare(text: string): string;
 	clear(): void;
@@ -142,49 +135,63 @@ function sharpThumbnail(
 	done: (image: PreviewImage | undefined) => void,
 ): () => void {
 	let cancelled = false;
-	const pipeline = sharp(path, { pages: 1 })
-		.rotate()
-		.resize({
-			width: widthPx,
-			height: heightPx,
-			fit: "inside",
-			withoutEnlargement: true,
-		})
-		.png()
-		.timeout({ seconds: THUMBNAIL_TIMEOUT_SECONDS });
-	void pipeline
-		.toBuffer()
-		.then((output) => {
-			if (!cancelled) {
-				done({ base64: output.toString("base64"), mimeType: "image/png" });
+	const metadataPipeline = sharp(path, { pages: 1 }).timeout({
+		seconds: THUMBNAIL_TIMEOUT_SECONDS,
+	});
+	let outputPipeline: ReturnType<typeof sharp> | undefined;
+	void metadataPipeline
+		.metadata()
+		.then((metadata) => {
+			if (cancelled) return undefined;
+			const orientation = metadata.orientation ?? 1;
+			const width = orientation >= 5 ? metadata.height : metadata.width;
+			const height = orientation >= 5 ? metadata.width : metadata.height;
+			outputPipeline = sharp(path, { pages: 1 }).timeout({
+				seconds: THUMBNAIL_TIMEOUT_SECONDS,
+			});
+			if (width && height && width <= widthPx && height <= heightPx) {
+				return outputPipeline
+					.rotate()
+					.toBuffer()
+					.then((output) => ({
+						base64: output.toString("base64"),
+						mimeType: MIME_TYPES[extname(path).toLowerCase()] ?? "image/png",
+					}));
 			}
+			return outputPipeline
+				.rotate()
+				.resize({
+					width: widthPx,
+					height: heightPx,
+					fit: "inside",
+					withoutEnlargement: true,
+				})
+				.png()
+				.toBuffer()
+				.then((output) => ({
+					base64: output.toString("base64"),
+					mimeType: "image/png",
+				}));
+		})
+		.then((image) => {
+			if (!cancelled && image) done(image);
 		})
 		.catch(() => {
 			if (!cancelled) done(undefined);
 		});
 	return () => {
 		cancelled = true;
-		pipeline.destroy();
+		metadataPipeline.destroy();
+		outputPipeline?.destroy();
 	};
 }
 
-export function planPreviewImage(
-	mimeType: string,
-	source: Buffer,
-): PreviewImagePlan {
-	const base64 = source.toString("base64");
-	const dimensions = getImageDimensions(base64, mimeType);
+export function previewPixelBounds(): { widthPx: number; heightPx: number } {
 	const cells = getCellDimensions();
-	const widthPx = Math.max(1, PREVIEW_WIDTH * cells.widthPx);
-	const heightPx = Math.max(1, PREVIEW_HEIGHT * cells.heightPx);
-	if (
-		dimensions &&
-		dimensions.widthPx <= widthPx &&
-		dimensions.heightPx <= heightPx
-	) {
-		return { image: { base64, mimeType }, thumbnail: undefined };
-	}
-	return { image: undefined, thumbnail: { widthPx, heightPx } };
+	return {
+		widthPx: Math.max(1, PREVIEW_WIDTH * cells.widthPx),
+		heightPx: Math.max(1, PREVIEW_HEIGHT * cells.heightPx),
+	};
 }
 
 function singleDeletionIndex(
@@ -360,38 +367,40 @@ export function installImagePreview(
 		const known = markersByPath.get(path);
 		if (known) return known;
 		if (!isAbsolute(path) || !CLIPBOARD_IMAGE.test(basename(path))) return;
-		const mimeType = MIME_TYPES[extname(path).toLowerCase()];
-		if (!mimeType) return;
+		if (!MIME_TYPES[extname(path).toLowerCase()]) return;
+		const marker = `[image ${++counter}]`;
+		const preview: Preview = {
+			marker,
+			path,
+			image: undefined,
+			cancelThumbnail: undefined,
+		};
+		previews.set(marker, preview);
+		markersByPath.set(path, marker);
+		const bounds = previewPixelBounds();
 		try {
-			const marker = `[image ${++counter}]`;
-			const plan = planPreviewImage(mimeType, readFileSync(path));
-			const preview: Preview = {
-				marker,
+			let completed = false;
+			const cancel = thumbnailer(
 				path,
-				image: plan.image,
-				cancelThumbnail: undefined,
-			};
-			previews.set(marker, preview);
-			markersByPath.set(path, marker);
-			if (plan.thumbnail) {
-				preview.cancelThumbnail = thumbnailer(
-					path,
-					plan.thumbnail.widthPx,
-					plan.thumbnail.heightPx,
-					(image) => {
-						preview.cancelThumbnail = undefined;
-						if (!image || previews.get(marker) !== preview) return;
-						preview.image = image;
-						visibleMarkers = "";
-						sync(target.getText?.() ?? "");
-						tui.requestRender();
-					},
-				);
-			}
-			return marker;
+				bounds.widthPx,
+				bounds.heightPx,
+				(image) => {
+					completed = true;
+					preview.cancelThumbnail = undefined;
+					if (!image || previews.get(marker) !== preview) return;
+					preview.image = image;
+					visibleMarkers = "";
+					sync(target.getText?.() ?? "");
+					tui.requestRender();
+				},
+			);
+			if (!completed) preview.cancelThumbnail = cancel;
 		} catch {
+			previews.delete(marker);
+			markersByPath.delete(path);
 			return;
 		}
+		return marker;
 	};
 	const ingest = (text: string, cursor: number | undefined) => {
 		let mappedCursor = cursor;

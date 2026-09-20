@@ -13,7 +13,8 @@ Beads (`bd`) is managed from the repository root.
 ## Build and test
 
 Pi loads `pacify.ts` through this package's `pi` manifest. There is no build
-step. Pi supplies coding-agent and pi-tui as peer packages.
+step. Pi supplies coding-agent, pi-ai, and pi-tui as peer packages. Coding-agent
+and pi-ai require 0.86 or newer; development dependencies follow latest.
 
 ```bash
 npm test
@@ -30,9 +31,10 @@ npm run test:coverage
 - Pacification changes tone only. The immutable system instruction always wins
   over configurable tone guidance. Use exactly one rewrite model call: no
   verifier, no second pass, no model-as-judge.
-- Pacification runs above Pi's handler chain by wrapping the host `emitInput`
-  funnel, so no other extension can observe an unpacified prompt. Never solve
-  ordering by naming another package or prescribing install order.
+- Pacification runs before registered commands and input handlers by wrapping
+  the host `AgentSession.prompt` boundary. Never solve ordering by naming
+  another package or prescribing install order. Adapters are owner-scoped,
+  reversible, and inert after shutdown; reload must install fresh code.
 - Automatic mode is off, on, or a daily local-time window, held as one union
   value so on and scheduled stay mutually exclusive by construction. An
   unusable window loads as off; never fail open to pacifying every prompt.
@@ -43,7 +45,9 @@ npm run test:coverage
 - Esc cancels and discards an in-flight auto prompt.
 - Progress, cancellation, and failure messages go to the transcript through
   `ctx.ui.notify()`. Never take a footer status slot.
-- Before and after prompts are custom session entries, never LLM context.
+- Original prompts and explicit message-ID links are custom session entries,
+  never LLM context. The rewrite is the real user message. Never match by text
+  or immediate parent, or scan history/read config during rendering.
 - Only `/pacify`'s own emitted message bypasses auto mode; other extension
   messages remain eligible.
 - Keep the default effort at `medium`. The default tone prompt measurably

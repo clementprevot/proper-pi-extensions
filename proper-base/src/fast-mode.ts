@@ -90,17 +90,18 @@ export class FastOverlay {
 		return this.sessionEnabled;
 	}
 
-	/**
-	 * The provider's Fast default: `CLIPROXYAPI_FAST` when set, else the
-	 * persisted `fast` key. Re-read per call so other sessions' writes count.
-	 */
+	/** A valid environment override, which makes the JSON flag read-only. */
+	globalEnvironmentOverride(): boolean | undefined {
+		const value = this.env.CLIPROXYAPI_FAST;
+		return value === undefined ? undefined : parseBooleanSetting(value);
+	}
+
+	/** The effective provider default, re-read for every request. */
 	isGlobalEnabled(): boolean {
-		const envValue = this.env.CLIPROXYAPI_FAST;
-		if (envValue !== undefined) {
-			const parsed = parseBooleanSetting(envValue);
-			if (parsed !== undefined) return parsed;
-		}
-		return readJsonObject(this.configPath())?.fast === true;
+		return (
+			this.globalEnvironmentOverride() ??
+			readJsonObject(this.configPath())?.fast === true
+		);
 	}
 
 	/**
@@ -108,6 +109,9 @@ export class FastOverlay {
 	 * the provider's own file format. Write failures propagate to the caller.
 	 */
 	toggleGlobal(): boolean {
+		if (this.globalEnvironmentOverride() !== undefined) {
+			throw new Error("CLIPROXYAPI_FAST is set in the environment");
+		}
 		const existing = readJsonObject(this.configPath()) ?? {};
 		const next = !this.isGlobalEnabled();
 		writeFileSync(

@@ -30,9 +30,9 @@ It asserts an inclusive start and exclusive end, a window that wraps midnight, z
 
 ## Reload and dispatch safety fixture
 
-The fixture registers the extension twice against one installed wrapper, standing in for the module replacement a reload performs.
+The fixture runs real host prompt dispatch across shutdown and extension re-registration.
 
-It verifies that the wrapper routes to the newest instance rather than the one that installed it, that a command with no argument reaches the chain without being sent to the model, and that a transcript write which throws still returns the rewritten prompt instead of failing the dispatch.
+A session override survives reload, disabled callbacks never call the rewrite model, and a new session cannot inherit another manager's override. A failing transcript write cannot discard the rewritten input.
 
 ## Session override fixture
 
@@ -48,9 +48,9 @@ It asserts that input beginning with either bypass command reaches dispatch untr
 
 ## Dispatch priority fixture
 
-The fixture installs the wrapper on a fake runner whose own handler records the text it receives, standing in for an extension registered ahead of this package.
+The fixture invokes Pi's actual AgentSession prompt dispatch and ExtensionRunner, with a foreign extension registered first.
 
-It verifies that the foreign handler observes only pacified text, that the wrapper returns the rewritten prompt, that exactly one transcript entry is written, and that repeated installation does not stack wrappers.
+Registered commands and input handlers receive rewritten arguments exactly once. Images, bare commands and acknowledgements survive; explicit `/pacify` and `/unpacify` also work when their output invokes a registered foreign command.
 
 ## Extension flow
 
@@ -68,9 +68,23 @@ It asserts that an unchanged prompt yields one same span, that a replacement emi
 
 ## Message diff fixture
 
-The fixture captures the registered markdown transformer and drives it with a stubbed session manager and marker theme supplied through `session_start`.
+The fixture constructs and renders actual Pi user components with an in-memory SessionManager and a marker theme.
 
-It asserts that a settled user message matching a recorded rewrite renders the original's deleted words struck through in the removed-diff color ahead of the kept text, and that everything else passes through byte-identical: assistant markdown, streaming user updates, text no pacify entry produced, a rewrite that changed nothing, and — through the pairing opt-outs — prompts that land beneath a cancelled rewrite's marker or a dispatched command's entry, which must never render as a diff of text the user did not type. A skill command's stored message, the expanded skill block followed by the rewritten argument, pairs that argument with the typed argument alone, so the diff renders on the prompt Pi displays beneath the skill block. Storing `diff: false` suppresses the display for the same message and storing `diff: true` restores it, without a reload.
+Two identical rewrites retain different originals despite intervening router-style model changes. A plain message on a sibling branch stays plain. Reload restores those identities, including components constructed and painted before `session_start`, matching the TUI's actual reload order. A history accessor that throws proves width changes do not scan entries; display toggles invalidate Markdown even at unchanged width.
+
+## Provider payload fixture
+
+The fixture normalizes contexts through Pi's public API, calls its actual Anthropic, Bedrock, and Google serializers, and captures payloads before networking.
+
+Adaptive models receive configured effort, older models receive a bounded thinking budget with answer room, explicit off disables thinking where supported, and managed-effort models retain the host's own adaptive policy. Each rewrite makes one completion call. Serialized Anthropic payloads must retain both the system-role declaration and the operative user-turn contract. Bedrock budget thinking and Google's shared output ceiling leave room for the answer; Google family-specific levels use the raw API's uppercase enum values.
+
+An isolated source-copy fixture uses the host loader's bundled-mode jiti configuration and virtual public modules, without a nearby node_modules tree. Both Pacify and router load successfully, while an unsupported internal pi-ai import is rejected.
+
+## Queued identity and cancellation fixture
+
+The fixture queues identical rewritten text through actual host steering and follow-up dispatch, then restores their distinct originals after reload.
+
+Shutdown aborts an in-flight rewrite and suppresses its late result even if the transport ignores cancellation. No queued message is sent after ownership ends.
 
 ## Transcript entry fixture
 

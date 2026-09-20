@@ -24,16 +24,21 @@ test("invalid overrides fall back to the default", () => {
 	}
 });
 
-test("only a renderer exposing a numeric wheel step is patched", () => {
+test("wheel patch supports reload takeover and ownership-safe restoration", () => {
 	const fullscreen = { wheelScrollLines: 1 };
-	assert.equal(installWheelScrollLines(fullscreen, 3), true);
+	const staleRestore = installWheelScrollLines(fullscreen, 3);
+	assert.ok(staleRestore);
 	assert.equal(fullscreen.wheelScrollLines, 3);
 
-	// A fractional value floors rather than handing the renderer a float.
-	assert.equal(installWheelScrollLines(fullscreen, 5.9), true);
+	const restore = installWheelScrollLines(fullscreen, 5.9);
+	assert.ok(restore);
 	assert.equal(fullscreen.wheelScrollLines, 5);
+	staleRestore();
+	assert.equal(fullscreen.wheelScrollLines, 5);
+	restore();
+	assert.equal(fullscreen.wheelScrollLines, 1);
 
 	const regular = {};
-	assert.equal(installWheelScrollLines(regular, 3), false);
+	assert.equal(installWheelScrollLines(regular, 3), undefined);
 	assert.equal("wheelScrollLines" in regular, false);
 });

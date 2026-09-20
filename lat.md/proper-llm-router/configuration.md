@@ -10,7 +10,7 @@ Missing files and missing keys use built-in defaults.
 | --- | --- | --- |
 | `enabled` | `true` | global routing switch; `false` stops automatic activation in every session |
 | `judge.model` | `gpt-5.6-terra` | authenticated Pi judge model ID or `provider/model-id` |
-| `judge.effort` | `medium` | optional `reasoning_effort`; `null` omits it |
+| `judge.effort` | `medium` | optional provider-specific thinking effort; `null` omits it |
 | `judge.fast` | `false` | `true` sends `service_tier: "priority"` on judge requests |
 | `fallbackModel` | `gpt-5.6-terra` | model ID or `provider/model-id` used after judged-path failure or for trivial input such as bare commands |
 | `cpaBase` | `http://127.0.0.1:8317` | CPA base for optional management requests |
@@ -117,7 +117,7 @@ Judge effort and session thinking use related but different controls.
 
 Pinned commands can select `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`, plus a choice that leaves the session default unchanged. They can also select `ultra` when the chosen model explicitly maps that level. The judge-effort picker remains `minimal` through `xhigh` plus `none`; it omits `off`, `max`, and `ultra`.
 
-A non-null judge effort is sent as `reasoning_effort`, while a pin effort is passed to pi after the final model switch. Pi clamps a saved `ultra` pin to the final model's highest available level if quota swapping or later catalog changes select a model without `ultra` support.
+A non-null judge effort is sent through Pi's provider-specific raw request options: Responses and Chat use `reasoningEffort`, Anthropic uses adaptive effort or a compatible thinking budget, Bedrock keeps `reasoning`, and Google uses its thinking object. A pin effort is passed to pi after the final model switch. Pi clamps a saved `ultra` pin to the final model's highest available level if quota swapping or later catalog changes select a model without `ultra` support.
 
 ## Management key handling
 
