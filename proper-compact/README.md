@@ -1,15 +1,49 @@
 # proper-compact
 
-Evidence-preserving compaction and transcript recall for [Pi](https://pi.dev).
-Requires Pi **0.87.0+** and Node **22.19+**. Not yet published to npm.
+[Pi](https://pi.dev) summarizes older conversation to make room for new work.
+In Pi 0.87.0, stock summarization clips each tool result to its first 2,000
+characters. The final error or test outcome in a long log may never reach the
+summarizer.
+
+proper-compact sends the full public text selected for compaction to the
+summarizer and lets the agent retrieve original evidence afterward. Use it for
+long debugging and implementation sessions where an exact failure, constraint,
+or earlier decision matters. Pi's context edits are still respected.
+
+Choose the summarizer model, reasoning effort, input/output budgets, call limit,
+timeout, and fallback behavior through `/compact-config`. Pi still owns when
+compaction happens and which recent messages remain verbatim. No separate
+history database or service is needed.
+
+Summaries remain lossy. Complete input and access to original evidence do not
+guarantee factual retention, lower cost, or better task performance.
+
+Requires Pi **0.87.0+** and Node **22.19+**.
 
 ## Install
 
-Install from this checkout, then reload Pi:
+Install an npm release:
+
+```bash
+pi install npm:proper-compact
+```
+
+Or install from the repository root of this checkout:
 
 ```bash
 pi install ./proper-compact
 ```
+
+Then run these commands inside Pi to load the extension and open its settings:
+
+```text
+/reload
+/compact-config
+```
+
+Defaults enable compaction with the current session model and low reasoning
+effort. Configuration is optional; continue working normally or run `/compact`
+to compact manually.
 
 Pi supplies the peer packages. `npm install` is needed only for development.
 Do not run another custom compaction replacement alongside this package:
@@ -43,10 +77,9 @@ history, matching stock Pi, so they can include text omitted from model context.
 
 The checkpoint is structured and prompted to preserve goals, constraints,
 progress, decisions, next steps, critical context, and artifact/evidence
-references. Split-turn prefixes
-are identified separately from completed history. Partial, empty, tool-bearing,
-malformed, and oversized checkpoints are rejected. No ordinary outbound context
-is pruned, deduplicated, or rewritten.
+references. Split-turn prefixes are identified separately from completed
+history. Partial, empty, tool-bearing, malformed, and oversized checkpoints are
+rejected. No ordinary outbound context is pruned, deduplicated, or rewritten.
 
 Images are represented by omission markers; private thinking and provider
 signatures are not sent to the summarizer. Summaries remain lossy. Full input
