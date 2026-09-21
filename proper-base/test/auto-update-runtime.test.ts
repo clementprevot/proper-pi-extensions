@@ -248,9 +248,11 @@ test("timeout and abort terminate subprocesses", async () => {
 test("abort kills ready detached install descendants even when they ignore SIGTERM", async () => {
 	const controller = new AbortController();
 	const descendant = `process.on('SIGTERM',()=>{});process.send(process.pid);setInterval(()=>{},1000);`;
-	const script = `const {spawn}=require('node:child_process');const c=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','ignore','ignore','ipc']});c.once('message',pid=>console.log(pid));setInterval(()=>{},1000);`;
+	const script = `const {spawn}=require('node:child_process');const c=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','ignore','ignore','ipc']});c.once('message',pid=>console.log(String(pid)));setInterval(()=>{},1000);`;
 	const result = await run(process.execPath, ["-e", script], {
 		...options(),
+		// Numeric console output is ANSI-colored when FORCE_COLOR is inherited.
+		env: { ...process.env, FORCE_COLOR: "1" },
 		signal: controller.signal,
 		// Bound startup, but exercise the shared timeout/abort cleanup only after
 		// the descendant confirms its SIGTERM handler is installed.
