@@ -37,6 +37,7 @@
     "index.ts",
     "src",
     "README.md",
+    "UPDATES.md",
     "LICENSE"
   ],
   "scripts": {

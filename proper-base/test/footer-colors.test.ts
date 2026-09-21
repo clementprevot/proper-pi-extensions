@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import properBase from "./base-only-fixture.ts";
 
 test("footer layout, colors, and shutdown restoration stay composed", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "proper-base-footer-"));

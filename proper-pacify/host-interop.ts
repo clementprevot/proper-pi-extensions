@@ -1,5 +1,5 @@
-// This small protocol is shipped in both independent packages. The root
-// integration test requires identical copies; neither package depends on the other.
+// This small protocol ships in independent packages. The root integration
+// test requires identical copies; packages do not depend on one another.
 export const ORIGINAL_INPUT = Symbol.for("proper-pi.original-input.v1");
 const WRAPPER = Symbol.for("proper-pi.method-wrapper.v1");
 type WrapperState = {

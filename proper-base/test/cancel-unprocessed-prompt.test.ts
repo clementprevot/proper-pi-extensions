@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import properBase from "./base-only-fixture.ts";
 
 test("cancelling an unprocessed prompt restores it and leaves its session branch", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "proper-base-cancel-prompt-"));

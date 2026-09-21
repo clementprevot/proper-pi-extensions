@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import properBase from "../index.ts";
+import properBase from "./base-only-fixture.ts";
 
 type Handler = (...args: any[]) => any;
 

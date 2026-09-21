@@ -8,13 +8,13 @@ import { test } from "node:test";
 
 // @lat: [[lat.md/proper-base/tests#Verification#Fast tier fixture]]
 
-import properBase from "../index.ts";
 import {
 	FastOverlay,
 	fastToggleNotice,
 	isFastToggle,
 } from "../src/fast-mode.ts";
 import { installRecorder } from "../src/recorder.ts";
+import properBase from "./base-only-fixture.ts";
 
 const SOL = { provider: "cliproxyapi", id: "gpt-5.6-sol" };
 

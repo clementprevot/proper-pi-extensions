@@ -13,7 +13,6 @@ import {
 	setCellDimensions,
 } from "@earendil-works/pi-tui";
 import sharp from "sharp";
-import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { installEditorNavigation } from "../src/editor-navigation.ts";
 import {
@@ -21,6 +20,7 @@ import {
 	previewPixelBounds,
 } from "../src/image-preview.ts";
 import { readPrompts, storePath } from "../src/store.ts";
+import properBase from "./base-only-fixture.ts";
 
 const PNG_1X1 = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==",

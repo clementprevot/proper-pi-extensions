@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import properBase from "../index.ts";
+import properBase from "./base-only-fixture.ts";
 
 type CommandHandler = (args: string, ctx: any) => Promise<void>;
 

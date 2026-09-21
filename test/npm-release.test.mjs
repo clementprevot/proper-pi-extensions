@@ -34,6 +34,36 @@ test("npm release config matches publishable packages", async () => {
 	}
 });
 
+// @lat: [[auto-update-tests#Base integration]]
+test("base ships automatic updates behind its existing extension entry", async () => {
+	const manifest = JSON.parse(
+		await readFile(new URL("proper-base/package.json", root), "utf8"),
+	);
+	assert.deepEqual(manifest.pi.extensions, ["./index.ts"]);
+	assert.ok(manifest.files.includes("src"));
+	assert.ok(manifest.files.includes("UPDATES.md"));
+	for (const file of [
+		"index.ts",
+		"runtime.ts",
+		"readiness.ts",
+		"availability.ts",
+		"settings.ts",
+		"inventory.mjs",
+	]) {
+		assert.ok(
+			(
+				await readFile(
+					new URL(`proper-base/src/auto-update/${file}`, root),
+					"utf8",
+				)
+			).length,
+		);
+	}
+	await assert.rejects(readFile(new URL("proper-updater/package.json", root)), {
+		code: "ENOENT",
+	});
+});
+
 test("pacify ships runtime source without its test or config scaffolding", async () => {
 	const manifest = JSON.parse(
 		await readFile(new URL("proper-pacify/package.json", root), "utf8"),

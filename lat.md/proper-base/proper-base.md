@@ -1,6 +1,6 @@
 # proper-base
 
-proper-base combines cross-session history and reverse search with focused editor, fullscreen, cancellation, footer, and provider fast-tier customizations.
+proper-base combines history, editor, fullscreen, cancellation, footer, provider fast-tier customizations, and [[auto-updates|deferred automatic updates]].
 
 ## Purpose
 
@@ -13,6 +13,7 @@ Pi session messages contain model-facing expansions rather than trustworthy raw 
 The runtime is split by responsibility.
 
 - `index.ts` wires `session_start`, first-response session naming, proactive delegation, model-preserving `/clear`, editor replacement, early-cancel branch recovery, base keybinding overrides, `ask_user_question` cancellation, the commit-guard `tool_call` handler, once-only registration of the non-removable autocomplete provider, and the package entry point.
+- `src/auto-update/` observes native availability and installs on a later launch, with a persistent settings toggle and safe restart. Its registrar shares the base entry point and wrapper protocol; [[auto-update-tests]] covers the integration.
 - `src/autocomplete-details.ts` owns overlay lifecycle, boxed rendering, terminal positioning, selected-description updates, descending `/model` argument ordering, argument re-trigger after an accepted command completion, the optional `/model` thinking-level argument and its parser, and Enter submission of accepted `/model` completions.
 - `src/startup-defaults.ts` reads the `stickyDefaults` opt-out, while `src/sticky-defaults.ts` bridges Pi 0.86.0's live `AgentSession` to its own `SettingsManager` setters until ExtensionAPI exposes its existing `{ persist: true }` mutation option.
 - `src/commit-guard.ts` ports the commit-message validator hook: shell tokenization, direct-invocation and literal-message checks, and 72-column, blank-second-line, trailer, and attribution rules.
@@ -112,4 +113,6 @@ Each document owns one runtime concern.
 - [[storage]] — package index entry
 - [[operations]] — package index entry
 - [[tests]] — package index entry
+- [[auto-updates]] — automatic update readiness, installation, and safe restart
+- [[auto-update-tests]] — offline automatic update verification
 -->

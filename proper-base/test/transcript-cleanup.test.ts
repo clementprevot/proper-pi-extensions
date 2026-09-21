@@ -6,8 +6,8 @@ import {
 	Spacer,
 	stripTerminalSequences,
 } from "@earendil-works/pi-tui";
-import properBase from "../index.ts";
 import { installTranscriptCleanup } from "../src/transcript-cleanup.ts";
+import properBase from "./base-only-fixture.ts";
 
 type Content = {
 	type: "text" | "thinking" | "toolCall";

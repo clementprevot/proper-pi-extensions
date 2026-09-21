@@ -109,6 +109,12 @@ unpinned sources so `pi update --extensions` can update them later.
 | `npm:@ff-labs/pi-fff` | optional | Fast fuzzy file and content search, and file autocomplete backed by it. |
 | `npm:pi-context-view` | optional | Shows how much context a session is using and what was injected into it. |
 
+`proper-base` includes automatic updates: native update notices are recorded,
+then installed on the next supported launch. Explain its
+[restart limits and disable setting](./proper-base/UPDATES.md) before installing.
+The updater requires npm Pi on Linux/macOS with Node 22.19+ and skips automation.
+No separate updater package is needed.
+
 Selection rules:
 
 - Offer `npm:proper-flow` only when `bd` exists; otherwise state that it was

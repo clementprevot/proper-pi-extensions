@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { appendPrompt, storePath } from "../src/store.ts";
+import properBase from "./base-only-fixture.ts";
 
 test("session replay cannot add expanded prompts to editor history", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "proper-base-history-seeding-"));

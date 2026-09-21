@@ -52,9 +52,13 @@ const { createHostFixture } = await jiti.import(
 );
 
 test("independent packages ship the same versioned host interop protocol", async () => {
+	const canonical = await readFile(
+		new URL("proper-base/src/host-interop.ts", root),
+		"utf8",
+	);
 	assert.equal(
-		await readFile(new URL("proper-base/src/host-interop.ts", root), "utf8"),
 		await readFile(new URL("proper-pacify/host-interop.ts", root), "utf8"),
+		canonical,
 	);
 });
 

@@ -52,6 +52,10 @@ pi install ./proper-pacify
 pi install ./proper-flow
 ```
 
+`proper-base` includes [automatic updates](./proper-base/UPDATES.md): native
+notices trigger installation on the next supported launch. Disable them with
+**Automatic updates** in `/settings`. No separate updater package is needed.
+
 Install order does not matter for `proper-pacify`; it pacifies prompts above
 Pi's extension handler chain.
 
@@ -81,8 +85,8 @@ verifies and packs without OIDC permissions, publishes the exact tarball through
 npm trusted publishing, then creates a GitHub Release from the tag annotation.
 A brand-new package needs one maintainer-authenticated initial publish before
 npm allows trusted-publisher configuration; later versions use only this flow.
-`proper-pacify` has never been published, so its first release needs that
-manual publish before the trusted path applies.
+`proper-pacify` has its initial publish but still needs trusted-publisher
+registration.
 
 Configure all four npm packages with the same trusted publisher:
 
@@ -93,8 +97,9 @@ Configure all four npm packages with the same trusted publisher:
 
 Keep the GitHub `npm-release` environment free of required reviewers and wait
 timers so releases stay automatic. Restrict its deployment policies to
-`proper-base-v*`, `proper-llm-router-v*`, `proper-pacify-v*`, and
-`proper-flow-v*` tags, and restrict tag creation or deletion to maintainers. Main-branch rules must allow the
+`proper-base-v*`, `proper-llm-router-v*`, `proper-pacify-v*`,
+and `proper-flow-v*` tags. Restrict tag creation or deletion
+to maintainers. Main-branch rules must allow the
 release maintainer to bypass a PR-only rule for the script's atomic
 version-commit plus tag push. After the first trusted release succeeds, set each
 npm package to disallow token publishing.

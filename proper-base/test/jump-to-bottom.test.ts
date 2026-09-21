@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { installJumpToBottom } from "../src/jump-to-bottom.ts";
+import properBase from "./base-only-fixture.ts";
 
 function harness(editorLines: string[], footerLines: string[]) {
 	let following = false;

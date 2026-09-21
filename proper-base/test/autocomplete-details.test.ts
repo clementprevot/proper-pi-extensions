@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
-import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import {
 	installAutocompleteDetails,
 	sortModelAutocompleteDescending,
 } from "../src/autocomplete-details.ts";
+import properBase from "./base-only-fixture.ts";
 
 test("hidden autocomplete details release their TUI overlay", async () => {
 	let description: string | undefined = "details";

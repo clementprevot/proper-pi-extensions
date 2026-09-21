@@ -33,7 +33,9 @@ clipboard markers and path overlays in `src/image-preview.ts`,
 the scrolled-up jump-to-bottom button in `src/jump-to-bottom.ts`, history
 filtering in `src/history-guard.ts`, ordering in `src/history.ts`, submit
 interception in `src/recorder.ts`, and the private append-only JSONL store in
-`src/store.ts`.
+`src/store.ts`. Deferred automatic updates live in `src/auto-update/`; the root
+factory registers that module after base startup/shutdown hooks. Its inventory
+helper must ship beside the registrar. Update semantics are in `UPDATES.md`.
 
 ## Conventions
 
@@ -77,6 +79,15 @@ interception in `src/recorder.ts`, and the private append-only JSONL store in
   processing; processed turns keep Pi's normal cancellation behavior.
 - Abort the turn only for a questionnaire the user actually dismissed; let
   questionnaire failures reach the model.
-- Never write user settings from a running session or package lifecycle script.
-  Environment setup belongs in `../PI_SETUP.md` and must merge existing JSON.
+- Never rewrite Pi's settings.json directly from runtime or package scripts.
+  Use Pi's live SettingsManager for native settings. Feature preferences may
+  persist in their own files. Environment setup belongs in `../PI_SETUP.md`.
+- Observe native update checks without duplicate requests. Install only from
+  prior-process readiness; preserve legacy updater markers and opt-outs.
+- Scope project updates to their working directory and current trust. Preserve
+  input and session state; replace the process only after graceful shutdown.
+- Use native installers, compare actual installed state even after failures,
+  and terminate installer descendants before releasing the updater lock.
+- Settings changes never start an installer or interrupt an active one. Tests
+  must never update or restart the developer's Pi or installed packages.
 - Keep pure history and storage logic covered by `node:test` fixtures.

@@ -3,9 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import properBase from "../index.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { installBaseKeybindings } from "../src/base-keybindings.ts";
+import properBase from "./base-only-fixture.ts";
 
 test("base keybindings add image paste, prompt newlines, and transcript shortcuts", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "proper-base-fullscreen-"));

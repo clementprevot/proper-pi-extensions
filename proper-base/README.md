@@ -3,7 +3,7 @@
 Baseline [Pi](https://pi.dev) behavior for quieter transcripts, automatic
 session titles, model-preserving `/clear`, project prompt history, prompt
 editing, fullscreen navigation, image handling, cancellation, autocomplete,
-and footer layout.
+footer layout, and deferred automatic updates.
 
 ## User-facing features
 
@@ -33,6 +33,18 @@ and footer layout.
   the slash command you typed, such as `/implement-ready epic-1 4`.
 - CLIProxyAPI `empty_stream` failures become normal retryable network errors, so
   Pi applies its existing retry budget and backoff.
+
+### Automatic updates
+
+- Pi's native background checks record available updates. proper-base installs
+  them on the next supported launch, with live progress and safe restart.
+- No recorded updates means no additional update checks or inventory at startup.
+- `/settings` → **Automatic updates** persists enable/disable. `--no-auto-update`
+  and `PROPER_UPDATER_OFF=1` still override it for a launch.
+- Automatic updating requires npm Pi on Linux/macOS with Node 22.19+; automation
+  and unsupported installations are skipped. No separate package is needed.
+
+See [update behavior, safety limits, and migration](./UPDATES.md).
 
 ### Prompt editing and cancellation
 

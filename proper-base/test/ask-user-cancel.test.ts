@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import properBase from "../index.ts";
+import properBase from "./base-only-fixture.ts";
 
 function toolResultHandler() {
 	let handler: ((event: any, ctx: any) => unknown) | undefined;

@@ -19,7 +19,7 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
-
+import { registerAutoUpdates } from "./src/auto-update/index.ts";
 import {
 	installAutocompleteDetails,
 	installInlineSlashAutocomplete,
@@ -820,4 +820,6 @@ export default function (pi: ExtensionAPI) {
 
 		ctx.ui.setEditorComponent(factory);
 	});
+	// Base setup and cleanup must register before the updater's lifecycle hooks.
+	registerAutoUpdates(pi);
 }
