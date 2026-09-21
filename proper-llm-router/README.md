@@ -39,6 +39,15 @@ are normal task text unless pinned.
 - The judge model must resolve through Pi's authenticated model registry.
   Qualified and unqualified IDs both use Pi's provider runtime, credentials,
   endpoint, serialization, and one strict `route_model` tool call.
+- Custom `openai-completions` judge endpoints must support strict JSON-schema
+  tools. Pi's `openai-completions` adapter defaults to `supportsStrictMode:
+  false` for unknown endpoints; the router's `route_model` tool requires strict
+  mode and fails visibly rather than relaxing the schema silently. Use a
+  supported judge endpoint (such as the default Codex Responses models) or
+  explicitly add `"compat": { "supportsStrictMode": true }` to the endpoint's
+  model entry in Pi's registry -- only for endpoints that have been verified to
+  accept strict JSON-schema tool calls. The default Responses and Codex judges
+  are unaffected.
 - The judge makes at most two 60-second attempts. Pressing Esc cancels judging,
   discards the prompt, and leaves routing armed.
 - Later turns make no judge call.
@@ -166,7 +175,7 @@ modified.
 ## Install
 
 Use Node 22.19 or newer. The extension and `ultra` compatibility layer are
-tested against Pi 0.86.0 and requires Pi 0.86.0 or newer.
+tested against Pi 0.87.0 and requires Pi 0.86.0 or newer.
 
 Install the published package:
 

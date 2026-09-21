@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+
 import { pinSkillContext } from "../src/skill-context.ts";
 
 type Message = { role: string; content?: unknown };
@@ -31,6 +33,17 @@ function textOf(message: Message | undefined): string {
 		)
 		.map((part) => part.text)
 		.join("");
+}
+
+function pinnedNativeBranch(manager: SessionManager): Message[] {
+	return pinSkillContext(
+		manager.buildSessionProjection().messages as Message[],
+		manager.getBranch(),
+	);
+}
+
+function nativeUserMessage(content: string) {
+	return { role: "user" as const, content, timestamp: Date.now() };
 }
 
 test("repeat invocations collapse to a note without touching the first copy", () => {
@@ -116,6 +129,127 @@ test("an edited skill file does not carry the stale body back", () => {
 
 	assert.equal(next, messages, "newest body is present, nothing to carry");
 	assert.doesNotMatch(textOf(next[1]), /Body one\./);
+});
+
+test("native context edit omission is not restored after compaction", () => {
+	const manager = SessionManager.inMemory("/tmp/proper-base-skill-context");
+	const id = manager.appendMessage(
+		nativeUserMessage(skillText("audit", "OMITTED_SKILL_SENTINEL", "first")),
+	);
+	manager.appendContextEdit(id, null);
+	manager.appendCompaction("Checkpoint without skills.", null, 1000);
+	manager.appendMessage(nativeUserMessage("Continue."));
+
+	const pinned = pinnedNativeBranch(manager);
+
+	assert.match(JSON.stringify(manager.getBranch()), /OMITTED_SKILL_SENTINEL/);
+	assert.doesNotMatch(
+		JSON.stringify(manager.buildSessionProjection().messages),
+		/OMITTED_SKILL_SENTINEL/,
+	);
+	assert.doesNotMatch(JSON.stringify(pinned), /OMITTED_SKILL_SENTINEL/);
+});
+
+test("native context edit plain replacement is not restored as the old skill", () => {
+	const manager = SessionManager.inMemory("/tmp/proper-base-skill-context");
+	const id = manager.appendMessage(
+		nativeUserMessage(skillText("audit", "REPLACED_SKILL_SENTINEL", "first")),
+	);
+	manager.appendContextEdit(id, {
+		content: "Replaced with ordinary user text.",
+	});
+	manager.appendCompaction("Checkpoint without skills.", null, 1000);
+	manager.appendMessage(nativeUserMessage("Continue."));
+
+	const pinned = pinnedNativeBranch(manager);
+
+	assert.doesNotMatch(JSON.stringify(pinned), /REPLACED_SKILL_SENTINEL/);
+	assert.doesNotMatch(textOf(pinned[1]), /<skill name="audit"/);
+	assert.match(textOf(pinned[1]), /Continue\.$/);
+});
+
+test("native context edit skill replacement survives compaction", () => {
+	const manager = SessionManager.inMemory("/tmp/proper-base-skill-context");
+	const id = manager.appendMessage(
+		nativeUserMessage(skillText("audit", "OLD_SKILL_SENTINEL", "first")),
+	);
+	manager.appendContextEdit(id, {
+		content: skillText("audit", "UPDATED_SKILL_SENTINEL", "updated"),
+	});
+	manager.appendCompaction("Checkpoint without skills.", null, 1000);
+	manager.appendMessage(nativeUserMessage("Continue."));
+
+	const restored = textOf(pinnedNativeBranch(manager)[1]);
+
+	assert.match(restored, /UPDATED_SKILL_SENTINEL/);
+	assert.doesNotMatch(restored, /OLD_SKILL_SENTINEL/);
+	assert.match(restored, /Continue\.$/);
+});
+
+test("native context edit latest replacement wins skill carry", () => {
+	const manager = SessionManager.inMemory("/tmp/proper-base-skill-context");
+	const id = manager.appendMessage(
+		nativeUserMessage(skillText("audit", "OLD_SKILL_SENTINEL", "first")),
+	);
+	manager.appendContextEdit(id, {
+		content: skillText("audit", "FIRST_EDIT_SENTINEL", "first edit"),
+	});
+	manager.appendContextEdit(id, {
+		content: skillText("audit", "SECOND_EDIT_SENTINEL", "second edit"),
+	});
+	manager.appendCompaction("Checkpoint without skills.", null, 1000);
+	manager.appendMessage(nativeUserMessage("Continue."));
+
+	const restored = textOf(pinnedNativeBranch(manager)[1]);
+
+	assert.match(restored, /SECOND_EDIT_SENTINEL/);
+	assert.doesNotMatch(restored, /FIRST_EDIT_SENTINEL/);
+	assert.doesNotMatch(restored, /OLD_SKILL_SENTINEL/);
+});
+
+test("native context edits stay branch-local across navigation and repeated compaction", () => {
+	const manager = SessionManager.inMemory("/tmp/proper-base-skill-context");
+	const id = manager.appendMessage(
+		nativeUserMessage(skillText("audit", "ORIGINAL_BRANCH_SKILL")),
+	);
+	manager.appendContextEdit(id, {
+		content: skillText("audit", "EDITED_BRANCH_SKILL"),
+	});
+	manager.appendCompaction("First branch checkpoint.", null, 1000);
+	const editedLeaf = manager.appendMessage(
+		nativeUserMessage("Continue edited."),
+	);
+	assert.match(
+		JSON.stringify(pinnedNativeBranch(manager)),
+		/EDITED_BRANCH_SKILL/,
+	);
+
+	manager.branch(id);
+	manager.appendCompaction("Sibling branch checkpoint.", null, 1000);
+	manager.appendMessage(nativeUserMessage("Continue sibling."));
+	const sibling = JSON.stringify(pinnedNativeBranch(manager));
+	assert.match(sibling, /ORIGINAL_BRANCH_SKILL/);
+	assert.doesNotMatch(sibling, /EDITED_BRANCH_SKILL/);
+	manager.appendContextEdit(id, null);
+	assert.doesNotMatch(
+		JSON.stringify(pinnedNativeBranch(manager)),
+		/BRANCH_SKILL/,
+	);
+
+	manager.branch(editedLeaf);
+	manager.appendContextEdit(id, null);
+	manager.appendContextEdit(id, {
+		content: [
+			{ type: "text", text: skillText("audit", "LATEST_BRANCH_SKILL") },
+		],
+	});
+	manager.appendCompaction("Second edited checkpoint.", null, 1000);
+	manager.appendMessage(nativeUserMessage("Continue latest."));
+	const originalEntries = structuredClone(manager.getEntries());
+	const restored = JSON.stringify(pinnedNativeBranch(manager));
+	assert.match(restored, /LATEST_BRANCH_SKILL/);
+	assert.doesNotMatch(restored, /ORIGINAL_BRANCH_SKILL|EDITED_BRANCH_SKILL/);
+	assert.deepEqual(manager.getEntries(), originalEntries);
 });
 
 test("carrying is skipped when no compaction dropped anything", () => {

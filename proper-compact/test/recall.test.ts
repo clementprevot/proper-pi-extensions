@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+	collectEntriesForBranchSummary,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { recall, serializeEntry } from "../context.ts";
 import {
 	addTool,
@@ -56,6 +59,53 @@ test("branch summaries honor opt-in and focus, while custom-format requests dele
 		undefined,
 	);
 	assert.equal(f.calls.length, 1);
+	assert.deepEqual(f.errors, []);
+});
+
+test("branch summaries and recall retain raw history after context edits", async (t) => {
+	const f = await fixture(t);
+	const root = f.manager.appendMessage(user("Common ancestor"));
+	const replaced = f.manager.appendMessage(
+		response("ORIGINAL_BRANCH_EVIDENCE"),
+	);
+	const omitted = f.manager.appendMessage(response("OMITTED_BRANCH_EVIDENCE"));
+	f.manager.appendContextEdit(replaced, { content: "REPLACEMENT_BRANCH_TEXT" });
+	f.manager.appendContextEdit(omitted, null);
+	const projected = JSON.stringify(f.manager.buildSessionProjection().messages);
+	assert.match(projected, /REPLACEMENT_BRANCH_TEXT/);
+	assert.doesNotMatch(
+		projected,
+		/ORIGINAL_BRANCH_EVIDENCE|OMITTED_BRANCH_EVIDENCE/,
+	);
+	const oldLeafId = f.manager.getLeafId();
+	const { entries, commonAncestorId } = collectEntriesForBranchSummary(
+		f.manager,
+		oldLeafId,
+		root,
+	);
+	await f.runner.emit({
+		type: "session_before_tree",
+		preparation: {
+			targetId: root,
+			oldLeafId,
+			commonAncestorId,
+			entriesToSummarize: entries,
+			userWantsSummary: true,
+		},
+		signal: new AbortController().signal,
+	});
+	const input = JSON.stringify(f.calls[0][1]);
+	assert.match(input, /ORIGINAL_BRANCH_EVIDENCE/);
+	assert.match(input, /OMITTED_BRANCH_EVIDENCE/);
+	assert.doesNotMatch(input, /REPLACEMENT_BRANCH_TEXT/);
+	assert.match(
+		recall(f.manager, { entryId: replaced }),
+		/ORIGINAL_BRANCH_EVIDENCE/,
+	);
+	assert.match(
+		recall(f.manager, { entryId: omitted }),
+		/OMITTED_BRANCH_EVIDENCE/,
+	);
 	assert.deepEqual(f.errors, []);
 });
 

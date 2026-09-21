@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
 import { DEFAULTS, loadConfig, resolveModel, saveConfig } from "../compact.ts";
 import { serializeEntry, serializeMessages } from "../context.ts";
-import { fixture, model, response, usage } from "./fixture.ts";
+import { addTool, fixture, model, response, usage, user } from "./fixture.ts";
 
 // @lat: [[proper-compact/tests#Failure and cancellation]]
 test("a delivered response is accounted before a queued cancellation", async (t) => {
@@ -72,20 +72,69 @@ test("native custom, branch, and compaction projections retain source IDs", asyn
 	);
 	f.manager.branchWithSummary(custom, "Branch summary");
 	f.manager.appendCompaction("Earlier checkpoint", custom, 10000);
-	const entries = f.manager
-		.getBranch()
-		.filter((entry) =>
-			["custom_message", "branch_summary", "compaction"].includes(entry.type),
-		);
-	const messages = entries.flatMap(sessionEntryToContextMessages);
-	const serialized = serializeMessages(messages, entries, "history");
+	const entries = f.manager.getBranch();
+	const projection = f.manager.buildSessionProjection();
+	const serialized = serializeMessages(projection.messages, entries, "history");
 	assert.deepEqual(
 		serialized.split("\n").map((line) => JSON.parse(line).entryId),
-		entries.map((entry) => entry.id),
+		projection.entries
+			.filter(({ messages }) =>
+				messages.some((message) => message.role !== "system"),
+			)
+			.map(({ sourceEntry }) => sourceEntry.id),
 	);
-	for (const entry of entries)
-		assert.equal(JSON.parse(serializeEntry(entry)).entryId, entry.id);
+	for (const { sourceEntry, messages } of projection.entries) {
+		if (messages.length)
+			assert.equal(
+				JSON.parse(serializeEntry(sourceEntry)).entryId,
+				sourceEntry.id,
+			);
+	}
 	assert.doesNotMatch(serialized, /PRIVATE_METADATA/);
+});
+
+test("native compaction preserves replacement provenance and omits edited-out messages", async (t) => {
+	const f = await fixture(t);
+	const sources = [
+		[f.manager.appendMessage(user("OLD_USER")), "NEW_USER"],
+		[f.manager.appendMessage(response("OLD_ASSISTANT")), "NEW_ASSISTANT"],
+		[addTool(f.manager, "edited-tool", "OLD_TOOL"), "NEW_TOOL"],
+		[
+			f.manager.appendCustomMessageEntry("annotation", "OLD_CUSTOM", true),
+			"NEW_CUSTOM",
+		],
+	] as const;
+	const originals = sources.map(([id]) =>
+		structuredClone(f.manager.getEntry(id)),
+	);
+	for (const [id, text] of sources) {
+		f.manager.appendContextEdit(id, { content: "SUPERSEDED_REPLACEMENT" });
+		f.manager.appendContextEdit(id, { content: text });
+	}
+	const omitted = f.manager.appendMessage(response("OMITTED_ATTEMPT"));
+	f.manager.appendContextEdit(omitted, null);
+	f.manager.appendMessage(user("Retained request. ".repeat(40)));
+	await f.session.compact();
+	const transcript = f.calls[0][1].messages[1].content.split(
+		"TRANSCRIPT DATA, through end of message:\n",
+	)[1];
+	assert.doesNotMatch(
+		transcript,
+		/OLD_|SUPERSEDED_REPLACEMENT|OMITTED_ATTEMPT/,
+	);
+	const records = transcript
+		.split("\n")
+		.map((line: string) => JSON.parse(line));
+	for (const [id, text] of sources) {
+		const record = records.find((candidate: any) => candidate.entryId === id);
+		assert.ok(record, `Missing provenance for ${text}`);
+		assert.ok(JSON.stringify(record.content).includes(text));
+	}
+	assert.deepEqual(
+		sources.map(([id]) => f.manager.getEntry(id)),
+		originals,
+	);
+	assert.deepEqual(f.errors, []);
 });
 
 test("indistinguishable projections expose candidate IDs rather than inventing provenance", async (t) => {

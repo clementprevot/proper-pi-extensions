@@ -1,6 +1,6 @@
 # proper-compact
 
-Independently installable Pi 0.86.1+ compaction extension. No build step or
+Independently installable Pi 0.87.0+ compaction extension. No build step or
 runtime npm dependencies; Pi supplies peer packages.
 
 ## Development

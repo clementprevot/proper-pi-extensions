@@ -1,4 +1,7 @@
-import { parseSkillBlock } from "@earendil-works/pi-coding-agent";
+import {
+	type ContextEditEntry,
+	parseSkillBlock,
+} from "@earendil-works/pi-coding-agent";
 
 /**
  * Characters kept from a complete skill block when it is carried across a
@@ -15,8 +18,11 @@ type ContextMessage = {
 	content?: unknown;
 };
 type TextPart = { type: "text"; text: string };
-type SessionEntry = {
+type BranchEntry = {
 	type: string;
+	id?: string;
+	targetId?: string;
+	replacement?: ContextEditEntry["replacement"];
 	message?: { role?: string; content?: unknown };
 };
 type Invocation = { name: string; block: string };
@@ -47,7 +53,7 @@ function readInvocation(
 }
 
 function messageInvocation(
-	message: ContextMessage | SessionEntry["message"],
+	message: ContextMessage | BranchEntry["message"],
 ): ReturnType<typeof readInvocation> {
 	const content = message?.content;
 	if (typeof content === "string") return readInvocation(content);
@@ -106,6 +112,30 @@ function truncate(block: string, limit: number): string | undefined {
 	return block.slice(0, limit - suffix.length) + suffix;
 }
 
+function contextEdits(
+	branch: BranchEntry[],
+): Map<string, ContextEditEntry["replacement"]> {
+	const edits = new Map<string, ContextEditEntry["replacement"]>();
+	for (const entry of branch) {
+		if (entry.type !== "context_edit" || typeof entry.targetId !== "string")
+			continue;
+		edits.set(entry.targetId, entry.replacement ?? null);
+	}
+	return edits;
+}
+
+function visibleBranchMessage(
+	entry: BranchEntry,
+	edits: Map<string, ContextEditEntry["replacement"]>,
+): BranchEntry["message"] | undefined {
+	if (entry.type !== "message" || entry.message?.role !== "user")
+		return undefined;
+	if (!entry.id || !edits.has(entry.id)) return entry.message;
+	const replacement = edits.get(entry.id);
+	if (replacement === null || !replacement) return undefined;
+	return { ...entry.message, content: replacement.content };
+}
+
 /**
  * Keep every invoked skill present exactly once in the outgoing context.
  *
@@ -122,7 +152,7 @@ function truncate(block: string, limit: number): string | undefined {
  */
 export function pinSkillContext<T extends ContextMessage>(
 	messages: T[],
-	branch: SessionEntry[],
+	branch: BranchEntry[],
 ): T[] {
 	const seen = new Set<string>();
 	let changed = false;
@@ -159,16 +189,18 @@ export function pinSkillContext<T extends ContextMessage>(
  */
 function carryAcrossCompaction(
 	messages: ContextMessage[],
-	branch: SessionEntry[],
+	branch: BranchEntry[],
 	present: Set<string>,
 ): string | undefined {
 	if (!messages.some((message) => message.role === "compactionSummary")) {
 		return undefined;
 	}
+	const edits = contextEdits(branch);
 	const missing = new Map<string, Invocation>();
 	for (const entry of branch) {
-		if (entry.type !== "message" || entry.message?.role !== "user") continue;
-		const invocation = messageInvocation(entry.message);
+		const message = visibleBranchMessage(entry, edits);
+		if (!message) continue;
+		const invocation = messageInvocation(message);
 		if (!invocation) continue;
 		// A skill file edited mid-session yields a new body, so the newest state
 		// of each name decides: a present body cancels an earlier missing one.

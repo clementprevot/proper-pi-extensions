@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { Message } from "@earendil-works/pi-ai";
 import {
+	buildSessionProjection,
 	convertToLlm,
 	type ExtensionContext,
 	type SessionBeforeCompactEvent,
@@ -53,12 +54,19 @@ export function serializeMessages(
 		{ message: AgentMessage; id: string }[]
 	>();
 	const key = (message: AgentMessage) => `${message.role}:${message.timestamp}`;
-	for (const entry of entries) {
-		for (const message of sessionEntryToContextMessages(entry)) {
+	const sources =
+		phase === "history" || phase === "turn-prefix"
+			? buildSessionProjection(entries).entries
+			: entries.map((sourceEntry) => ({
+					sourceEntry,
+					messages: sessionEntryToContextMessages(sourceEntry),
+				}));
+	for (const { sourceEntry: entry, messages: projected } of sources) {
+		for (const message of projected) {
 			const known = ids.get(message) ?? [];
 			known.push(entry.id);
 			ids.set(message, known);
-			// Pi constructs fresh objects for summaries, custom messages, and repairs.
+			// Pi constructs fresh objects for summaries, custom messages, and edits.
 			if (entry.type !== "message" || message !== entry.message) {
 				const group = projections.get(key(message)) ?? [];
 				group.push({ message, id: entry.id });

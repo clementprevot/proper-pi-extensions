@@ -8,7 +8,7 @@ proper-compact replaces Pi's summary policy while preserving native compaction b
 
 ## Architectural boundary
 
-The package uses public Pi 0.86.1 hooks and authenticated registry streaming, with no runtime dependencies, private host patches, pruning pipeline, or new memory store.
+The package uses public Pi 0.87.0 hooks and authenticated registry streaming, with no runtime dependencies, private host patches, pruning pipeline, or new memory store.
 
 `compact.ts` owns configuration, prompt contracts, request planning, output validation, usage, and lifecycle hooks. `context.ts` owns public-text serialization and branch-scoped recall. Pi alone appends successful compaction and branch-summary entries. Ordinary `context` events are untouched.
 
@@ -16,7 +16,7 @@ The package uses public Pi 0.86.1 hooks and authenticated registry streaming, wi
 
 Summarizer input preserves complete public text, tool arguments, result status, and available source IDs. Thinking, signatures, and image bytes are excluded explicitly.
 
-Original message objects map directly to source IDs. Fresh native projections are matched structurally within role/timestamp groups; ambiguous matches expose candidate IDs instead of inventing provenance. Normal history and split-turn prefixes carry separate phase labels. Previous checkpoints are untrusted prior state. Branch summaries receive all supplied abandoned-path entries, including existing summaries, without native newest-only truncation. Repeated tool arguments never justify discarding results. Failed tools may still have side effects; artifact descriptions must distinguish attempts from confirmed outcomes.
+Ordinary compaction maps prepared messages to Pi's canonical projected source entries. Context-edit omissions stay omitted; replacement content retains its original source ID. Original message objects map directly, while fresh native projections are matched structurally within role/timestamp groups; ambiguous matches expose candidate IDs instead of inventing provenance. Normal history and split-turn prefixes carry separate phase labels. Previous checkpoints are untrusted prior state. Branch summaries intentionally receive raw abandoned-path entries, including existing summaries and context-edited originals, without native newest-only truncation. This matches stock Pi's raw-history branch-summary policy, not ordinary compaction's edited-context policy. Repeated tool arguments never justify discarding results. Failed tools may still have side effects; artifact descriptions must distinguish attempts from confirmed outcomes.
 
 JSON serialization makes source structure explicit, not immune to prompt injection. The summarizer has no tools, is instructed not to follow source instructions, and cannot return executable tool output.
 
@@ -60,7 +60,7 @@ The compact_recall tool searches and pages original public text through native s
 
 Search is literal, case-insensitive, and limited to eight matching entries per page. Entry reads return at most 16,000 serialized UTF-16 characters with continuation offsets. Source images, private thinking, hidden custom state, unrelated branches, arbitrary files, and other sessions are inaccessible.
 
-No copies of history are stored. Branch references absent after fork/export are reported unavailable. The summary carries a deterministic recall reminder, but storage access does not guarantee that an agent will retrieve the right evidence.
+Recall exposes original public text even when context edits omit or replace it for future model requests. No copies of history are stored. Branch references absent after fork/export are reported unavailable. The summary carries a deterministic recall reminder, but storage access does not guarantee that an agent will retrieve the right evidence.
 
 ## Configuration
 

@@ -1,7 +1,7 @@
 # proper-compact
 
 Evidence-preserving compaction and transcript recall for [Pi](https://pi.dev).
-Requires Pi **0.86.1+** and Node **22.19+**. Not yet published to npm.
+Requires Pi **0.87.0+** and Node **22.19+**. Not yet published to npm.
 
 ## Install
 
@@ -36,6 +36,11 @@ used when the source fits. Otherwise, bounded sequential chunks cover every
 serialized character, carrying the validated checkpoint between calls. Input
 that would exceed the configured call count is rejected before inference.
 
+Ordinary compaction uses Pi's context-edited projection: omitted messages stay
+omitted, replacement content keeps its original source ID, and the latest edit
+on the active branch wins. Branch summaries deliberately describe raw abandoned
+history, matching stock Pi, so they can include text omitted from model context.
+
 The checkpoint is structured and prompted to preserve goals, constraints,
 progress, decisions, next steps, critical context, and artifact/evidence
 references. Split-turn prefixes
@@ -57,6 +62,7 @@ compact_recall({"query":"expected owner=42"})
 compact_recall({"entryId":"returned-entry-id","offset":0,"limit":8000})
 ```
 
+Recall reads original history, not context-edit replacements or omissions.
 Search is literal and case-insensitive over serialized public text. It returns
 at most eight matching entries and a `nextOffset`. Reading an entry returns
 paged serialized text, `totalChars`, and `nextOffset`; the default page is 8,000
@@ -122,7 +128,7 @@ request-time credentials, endpoint overrides, headers, environment, and provider
 selection. The extension never handles API keys or implements HTTP transports.
 
 The model descriptor's output ceiling is constrained for summary calls so
-Anthropic/Bedrock's additive thinking allowance cannot exceed it. Pi 0.86.1's
+Anthropic/Bedrock's additive thinking allowance cannot exceed it. Pi 0.87.0's
 Codex-style transport may omit the wire output cap. Accordingly,
 `maxOutputTokens` is **not a guaranteed spending limit** on every backend.
 Accepted checkpoint text has an additional JSON-encoded byte bound of four
@@ -165,7 +171,8 @@ npm run test:coverage
 
 Tests use native Pi compaction/persistence and registry routing with mocked model
 responses. They cover trailing/interior failures, chunk coverage, repeated
-compaction, invalid output, cancellation, branch-scoped recall, skill recovery,
+compaction, context-edit provenance, invalid output, cancellation,
+raw branch-summary/recall semantics, branch-scoped recall, skill recovery,
 and bundled-module loading. No credentials or live provider calls are required.
 
 From the repository root, both pre-commit gates include this package. Release
@@ -175,7 +182,7 @@ trusted-publisher registration; no publication happens during development.
 
 ## Design evidence
 
-- [Pi compaction](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/compaction.md): native lifecycle and structured checkpoints. Implementation targets installed 0.86.1, not unreleased main.
+- [Pi compaction](https://github.com/earendil-works/pi/blob/v0.87.0/packages/coding-agent/docs/compaction.md): native lifecycle and structured checkpoints. Implementation targets released 0.87.0, not unreleased main.
 - [Factory compression evaluation](https://factory.com/news/evaluating-compression): motivation for structured task state and artifact tracking; vendor-reported, not an independent ranking.
 - [The Complexity Trap](https://arxiv.org/abs/2508.21433): compare complete task cost, not context reduction alone.
 - [Addressable Recall Compaction](https://arxiv.org/abs/2607.25066): mechanical recoverability and successful agent recall are distinct. This package reuses Pi's existing session history, not the paper's external storage system.

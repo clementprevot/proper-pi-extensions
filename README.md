@@ -16,14 +16,14 @@ Ponytail, without copying local credentials or private integrations.
 | [proper-base](./proper-base/README.md) | Pi extension | Improves transcripts, session titles, `/clear`, prompt history and search, editor keys, autocomplete, fullscreen navigation, image handling, cancellation, and footer layout. |
 | [proper-llm-router](./proper-llm-router/README.md) | Pi extension | Routes each session's first task to one of seven model tiers, then handles command pins, per-task overrides, quota swaps, fallbacks, and `ultra` thinking support. |
 | [proper-pacify](./proper-pacify/README.md) | Pi extension | Adds `/pacify`, `/pacify-session`, and `/pacify-config` for tone-only prompt rewriting, automatic prompt interception, and before/after session entries. |
-| [proper-compact](./proper-compact/README.md) | Pi extension | Adds evidence-preserving compaction, bounded multi-call summaries, and branch-scoped transcript recall. Requires Pi 0.86.1; local checkout only until first publication. |
+| [proper-compact](./proper-compact/README.md) | Pi extension | Adds evidence-preserving compaction, bounded multi-call summaries, and branch-scoped transcript recall. Requires Pi 0.87.0; local checkout only until first publication. |
 | [proper-flow](./proper-flow/README.md) | Pi prompt package | Adds `/triage`, `/file`, `/spec`, `/refine`, and `/implement-ready` for filing, planning, refining, and implementing Beads work, and ships the `constitution` and `speckit` formulas plus the worktree, retry, integration, and audit rail behind them. |
 
 `proper-base` and `proper-llm-router` work independently. `proper-flow`
 can also use pi-subagents for parallel workers and
 `proper-llm-router` for per-task model selection. With both runtime extensions
 installed, proper-base's `/clear` keeps the outgoing model instead of re-arming
-the router. The Pi compatibility target is 0.86.0; dependency-backed
+the router. The Pi compatibility target is 0.87.0; dependency-backed
 local setup requires Node 22.19 or newer.
 
 ## Install
@@ -61,9 +61,9 @@ notices trigger installation on the next supported launch. Disable them with
 Install order does not matter for `proper-pacify`; it pacifies prompts above
 Pi's extension handler chain.
 
-Pi supplies the extensions' core peer packages, and no package has runtime
-npm dependencies, so local installs need no `npm install`; it only prepares
-the development gates below. Each package README lists its remaining setup
+Pi supplies the extensions' core peer packages. proper-base also depends on
+`sharp` for image previews; its local checkout needs `npm install`. For the
+other packages, that command only prepares the development gates below. Each package README lists its remaining setup
 and runtime requirements.
 
 ## Release npm packages

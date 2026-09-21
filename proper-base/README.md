@@ -197,7 +197,9 @@ the model a one-line already-loaded note instead of a second copy; a body that
 changed with its arguments is sent in full. After a compaction, the newest body
 of each dropped skill is restored on the first user turn following the summary,
 truncated to a character ceiling per skill and in total so the restored text
-cannot re-trigger the compaction that just ran. Only the outbound copy changes,
+cannot re-trigger the compaction that just ran. Restoration honors the latest
+context edit on the active branch: omitted or replaced skill text is not
+resurrected, while replacement skill bodies remain eligible. Only the outbound copy changes,
 so saved sessions, exports, resumes, and branches retain the originals.
 
 ### Footer
@@ -210,7 +212,7 @@ highlight. Custom replacement footers are not changed.
 
 ## Install
 
-Node 22.19 or newer is required. The package is tested against Pi 0.86.0.
+Node 22.19 or newer is required. The package is tested against Pi 0.87.0.
 
 From npm:
 
@@ -225,10 +227,9 @@ pi install /path/to/proper-pi-extensions/proper-base
 ```
 
 Pi supplies the core `@earendil-works/pi-coding-agent` and
-`@earendil-works/pi-tui` peer packages. The package has no runtime
-dependencies, no build step, and no install-time npm scripts, and it does
-not modify Pi settings during installation or runtime. `npm install` only
-prepares the development checks below.
+`@earendil-works/pi-tui` peer packages. `sharp` is a runtime dependency for
+image previews. Run `npm install` for a local checkout; it also prepares the
+development checks below. There is no build step or install-time npm script.
 
 This package replaces the former local `proper-customs` identity. Keep only one
 registration. Existing data under the legacy `proper-history` path remains

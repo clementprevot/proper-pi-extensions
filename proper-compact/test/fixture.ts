@@ -131,6 +131,7 @@ export async function fixture(t: TestContext) {
 	const session: any = Object.create(AgentSession.prototype);
 	let fallbacks = 0;
 	Object.assign(session, {
+		_entryIdsByMessage: new WeakMap(),
 		agent: { state: { model, thinkingLevel: "high", messages: [] } },
 		sessionManager: manager,
 		settingsManager: {

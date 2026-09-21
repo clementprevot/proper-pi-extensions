@@ -20,11 +20,13 @@ Fixtures verify no model calls or writes on dismissal, and no replacement of mal
 
 Interior and trailing errors, result status, IDs, and distinct repeated results survive serialization.
 
-Native custom-message, branch-summary, and compaction projections retain provenance; indistinguishable projections return candidate IDs. Multi-call chunk plans cover the source contiguously without splitting surrogate pairs and reject excessive call counts before inference.
+Native custom-message, branch-summary, and compaction projections retain provenance; indistinguishable projections return candidate IDs. Native compaction tests replace user, assistant, tool-result, and custom-message content, verifying latest-edit source IDs, omitted-attempt exclusion, and unchanged original entries. Multi-call chunk plans cover the source contiguously without splitting surrogate pairs and reject excessive call counts before inference.
 
 ## Native compaction lifecycle
 
-Real AgentSession compaction persists hook summaries, native cut boundaries, and usage while preserving original entries. Split focus and previous state survive three cycles; chunk usage is summed across calls.
+Pi 0.87.0 AgentSession compaction methods persist hook summaries, native cut boundaries, and usage while preserving original entries.
+
+The offline prototype fixture supplies the host's message-provenance map. Split focus and previous state survive three cycles; chunk usage is summed across calls.
 
 ## Failure and cancellation
 
@@ -41,6 +43,8 @@ A simulated pending-overflow wrapper proves the documented hook-order limitation
 ## Branch summaries and recall
 
 Branch summaries require opt-in and retain focus. Recall pages original public text after compaction, follows explicit source-branch references, excludes unrelated branches and private data, and paginates search without repeating matches.
+
+Context-edit replacements and omissions affect ordinary compaction but deliberately do not rewrite branch summaries or recall. A native branch-collection regression verifies that those raw-history paths preserve original evidence.
 
 Native disk resume retains original entries and compaction usage. Branch extraction keeps the active path but drops abandoned source entries; recall cannot follow missing references into the parent session file.
 

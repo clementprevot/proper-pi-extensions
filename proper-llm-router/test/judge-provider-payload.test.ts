@@ -7,11 +7,17 @@ import { normalizeContext } from "@earendil-works/pi-ai";
 import { stream as anthropicStream } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { stream as bedrockStream } from "@earendil-works/pi-ai/api/bedrock-converse-stream";
 import { stream as googleStream } from "@earendil-works/pi-ai/api/google-generative-ai";
+import { stream as openAICompletionsStream } from "@earendil-works/pi-ai/api/openai-completions";
 import { stream as openAIResponsesStream } from "@earendil-works/pi-ai/api/openai-responses";
 
 const originalHome = process.env.HOME;
 const testHome = mkdtempSync(join(tmpdir(), "proper-llm-router-payload-test-"));
 process.env.HOME = testHome;
+// Clear inherited routing env overrides so they cannot disable routing during tests.
+const originalRouterOff = process.env.LLM_ROUTER_OFF;
+const originalRouterOn = process.env.LLM_ROUTER_ON;
+delete process.env.LLM_ROUTER_OFF;
+delete process.env.LLM_ROUTER_ON;
 const {
 	default: llmRouter,
 	loadConfig,
@@ -20,6 +26,10 @@ const {
 after(() => {
 	if (originalHome === undefined) delete process.env.HOME;
 	else process.env.HOME = originalHome;
+	if (originalRouterOff === undefined) delete process.env.LLM_ROUTER_OFF;
+	else process.env.LLM_ROUTER_OFF = originalRouterOff;
+	if (originalRouterOn === undefined) delete process.env.LLM_ROUTER_ON;
+	else process.env.LLM_ROUTER_ON = originalRouterOn;
 	rmSync(testHome, { recursive: true, force: true });
 });
 
@@ -81,7 +91,9 @@ async function judgePayload(model: any): Promise<unknown[]> {
 								? googleStream
 								: requestModel.api === "bedrock-converse-stream"
 									? bedrockStream
-									: openAIResponsesStream;
+									: requestModel.api === "openai-completions"
+										? openAICompletionsStream
+										: openAIResponsesStream;
 					const response = await stream(
 						requestModel,
 						normalizeContext(context),
@@ -224,4 +236,60 @@ test("Google judge sends supported raw levels and leaves reasoning headroom", as
 		});
 		assert.ok(payload.config.maxOutputTokens >= 9216);
 	}
+});
+
+// @lat: [[lat.md/proper-llm-router/tests#Verification#Provider payload fixtures]]
+// Pi 0.87 openai-completions defaults supportsStrictMode to false for unknown endpoints.
+// route_model carries strict:"require", so absent or false capability fails before any
+// payload is produced. The router falls back visibly.
+test("openai-completions judge without supportsStrictMode fails before payload", async () => {
+	const base = {
+		...baseModel,
+		provider: "custom",
+		id: "claude-sonnet-4-6",
+		name: "claude-sonnet-4-6",
+		api: "openai-completions",
+	};
+	// absent compat: supportsStrictMode defaults false, strict require throws
+	await assert.rejects(
+		() => judgePayload({ ...base, compat: undefined }),
+		/requires JSON-schema constrained sampling/,
+	);
+	// explicit false: same result
+	await assert.rejects(
+		() => judgePayload({ ...base, compat: { supportsStrictMode: false } }),
+		/requires JSON-schema constrained sampling/,
+	);
+});
+
+// @lat: [[lat.md/proper-llm-router/tests#Verification#Provider payload fixtures]]
+// Endpoints that explicitly advertise supportsStrictMode:true produce the nested
+// Chat Completions function shape, distinct from the flat Responses form.
+test("openai-completions judge with supportsStrictMode:true reaches payload with nested function", async () => {
+	const payloads = await judgePayload({
+		...baseModel,
+		provider: "custom",
+		id: "claude-sonnet-4-6",
+		name: "claude-sonnet-4-6",
+		api: "openai-completions",
+		compat: { supportsStrictMode: true },
+	});
+	assert.ok(payloads.length >= 1);
+	const payload = payloads[0] as {
+		tools: Array<{
+			type: string;
+			function: { name: string; strict?: boolean };
+		}>;
+		tool_choice: unknown;
+	};
+	const routeTool = payload.tools.find(
+		(tool) => tool.type === "function" && tool.function.name === "route_model",
+	);
+	assert.ok(routeTool);
+	assert.equal(routeTool.function.strict, true);
+	// Nested Chat Completions form, not the flat Responses form.
+	assert.deepEqual(payload.tool_choice, {
+		type: "function",
+		function: { name: "route_model" },
+	});
 });

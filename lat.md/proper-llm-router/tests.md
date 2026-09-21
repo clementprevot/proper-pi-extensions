@@ -40,6 +40,10 @@ The probes need no credentials and normalize contexts through Pi's public API be
 
 Anthropic budget thinking reserves answer room and uses automatic tool choice; adaptive models honor their `thinkingLevelMap` effort, and managed-effort models retain the host's adaptive/high output policy while receiving configured effort in the message policy. Bedrock budget thinking also uses automatic tool choice and reserves answer room. Google fixtures assert supported uppercase thinking levels and a shared output ceiling large enough for reasoning and the verdict.
 
+Two `openai-completions` fixtures cover the Pi 0.87 behavior change: the adapter now defaults `supportsStrictMode` to false for unknown endpoints. Because `route_model` carries `strict:"require"`, a custom judge endpoint without `compat.supportsStrictMode:true` fails before producing a payload and the router falls back visibly. The absent-compat and explicit-false-compat cases both assert that `judgePayload` rejects with the constrained-sampling error message. The explicit-true-compat case asserts that the payload keeps `strict: true` and uses the nested Chat Completions function shape (`tool_choice: { type: "function", function: { name: "route_model" } }`), which is distinct from the flat Responses form.
+
+The file-level setup saves and deletes `LLM_ROUTER_OFF` and `LLM_ROUTER_ON` before importing the module, restoring them in `after()`. This prevents inherited routing overrides from disabling routing during tests.
+
 ## Legacy auth config migration
 
 Legacy router-owned provider auth fields must not survive configuration loading.
@@ -132,7 +136,7 @@ It disables routing from an armed session and requires the first menu entry to b
 
 ## Ultra compatibility fixtures
 
-`test/ultra-thinking.test.ts` exercises the reload-safe prototype helpers against fake classes without editing pi internals. Its payload check imports the Pi 0.86.0 runtime resolved in the package lock.
+`test/ultra-thinking.test.ts` exercises the reload-safe prototype helpers against fake classes without editing pi internals. Its payload check imports the Pi 0.87.0 runtime resolved in the package lock.
 
 It verifies the shared thinking-level list ends in `ultra`, model capability filtering requires a non-empty `thinkingLevelMap.ultra`, native available-level discovery appends `ultra` only for supported models, unsupported transitions clamp to the highest available level, repeated installation does not stack patches, and the editor border reuses pi's maximum-effort theme color. A resolution fixture asserts the module-load shim reached the pinned runtime's real `AgentSession` and `Theme` classes through the public package export — the global patch markers are present and reinstallation takes the idempotent no-op path. A second fixture captures Pi's bundled OpenAI Responses payload before network I/O and verifies the model mapping sends `reasoning.effort: "ultra"`.
 

@@ -89,6 +89,8 @@ export function createHostFixture(register: (pi: ExtensionAPI) => void) {
 		},
 	};
 	Object.assign(session, {
+		// Keep image-identity checks independent of Pi's native resizing.
+		settingsManager: { getImageAutoResize: () => false },
 		agent,
 		sessionManager: manager,
 		_modelRuntime: { hasConfiguredAuth: () => true },
