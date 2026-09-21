@@ -29,6 +29,7 @@ import {
 } from "./src/autocomplete-details.ts";
 import { installBaseKeybindings } from "./src/base-keybindings.ts";
 import { installClipboardLeakGuard } from "./src/clipboard-guard.ts";
+import { installClipboardSelection } from "./src/clipboard-selection.ts";
 import { commitGuardReason } from "./src/commit-guard.ts";
 import { installEditorMouseGuard } from "./src/editor-mouse.ts";
 import {
@@ -259,6 +260,7 @@ export default function (pi: ExtensionAPI) {
 	let removeEditorMouseGuard: (() => void) | undefined;
 	let removePromptClear: (() => void) | undefined;
 	let removeSmartSelection: (() => void) | undefined;
+	let removeClipboardSelection: (() => void) | undefined;
 	let removeSelectionDismiss: (() => void) | undefined;
 	let removeOverlayScroll: (() => void) | undefined;
 	let removeOsc8LinkIds: (() => void) | undefined;
@@ -604,6 +606,8 @@ export default function (pi: ExtensionAPI) {
 		removePromptClear = undefined;
 		removeSmartSelection?.();
 		removeSmartSelection = undefined;
+		removeClipboardSelection?.();
+		removeClipboardSelection = undefined;
 		removeSelectionDismiss?.();
 		removeSelectionDismiss = undefined;
 		removeOverlayScroll?.();
@@ -729,6 +733,8 @@ export default function (pi: ExtensionAPI) {
 			removeWidgetTranscript = installWidgetTranscript(tui, editor);
 			removeSmartSelection?.();
 			removeSmartSelection = installSmartSelection(tui);
+			removeClipboardSelection?.();
+			removeClipboardSelection = installClipboardSelection(tui);
 			removeSelectionDismiss?.();
 			// The copy action reads the active selection after this listener runs,
 			// so its keystroke must not dismiss the selection it is about to copy.

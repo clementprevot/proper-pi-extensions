@@ -272,6 +272,14 @@ Unrecognized text, prompt and footer rows, regular TUI mode, and renderer shapes
 
 This is deliberately a guarded compatibility layer over private pi-tui methods because the extension API exposes no selection-range hook. A future rename disables token expansion rather than mouse selection. Tokens split across rendered rows remain separate, and proper-base's clickable compact tool and error rows keep their single-click expansion behavior instead of participating in double-click selection.
 
+## Clipboard selection cleanup
+
+Fullscreen transcript copies remove Markdown quote borders, layout margins, and soft-wrap newlines while preserving logical newlines and code indentation.
+
+The editor factory wraps Pi's active-selection text getter, shared by copy-on-select and the configured message-copy shortcut. Native mouse ranges, Unicode cell boundaries, highlighting, clipboard transport, and copy feedback remain unchanged. At copy time, proper-base replays each reachable Markdown component on a shallow clone, using its native parser, transforms, token renderer, and wrapping widths. Logical paragraph and code lines map back to rendered rows, so wrapped words regain their original spacing and split paths rejoin without added spaces. Nested quote borders and configured code-block indentation are removed only where the source map identifies them as decoration. Code fences remain selectable; tabs retain Pi's rendered three-space expansion.
+
+A mapping is used only when the complete cloned Markdown output matches the displayed transcript rows. Stale, ambiguous, unsupported, or unavailable mappings retain native row text. Lists, tables, custom renderers, and regular terminal-owned selection are not heuristically flattened. Mapping runs only when copying, not on every frame; it currently scans the selected scroll view's Markdown components. Installation and shutdown use an identity-guarded takeover so reloads cannot stack wrappers or let an old disposer undo a new one.
+
 ## Hyperlink identity
 
 Every physical row of one wrapped transcript hyperlink shares one OSC 8 id, so id-aware terminals hover-highlight and activate the whole link as a unit.

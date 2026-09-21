@@ -134,6 +134,11 @@ Wheel and transcript scroll keys keep working while an `ask_user_question`
 questionnaire or other overlay has focus, so earlier context stays reachable.
 | Double-click | Select a complete one-line URL, path, flag, qualified identifier, or quoted value when possible. |
 
+Copying fullscreen Markdown paragraphs and blockquotes removes display margins,
+quote borders, and screen-width line breaks. Real newlines, paragraph boundaries,
+and code indentation stay intact. Works with copy-on-select and Pi's configured
+copy shortcut. Lists, tables, and unmatched custom output keep native copying.
+
 Scrolling away from current output adds a `↓ jump to bottom` row above the
 prompt. Clicking it returns to the newest output without disabling scrollbar
 dragging.

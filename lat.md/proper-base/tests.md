@@ -168,6 +168,12 @@ Smart-selection fixtures verify token-aware ranges extend Pi's native fullscreen
 
 Pure cases cover wrapped URLs, source paths with line and column suffixes, command flags, qualified identifiers, quoted values, ANSI-styled paths, ordinary prose fallback, and fraction rejection. A fake fullscreen renderer proves only scroll-view points receive smart ranges, native selection handles other rows, and disposal restores the original resolver.
 
+## Clipboard selection fixture
+
+Real Markdown, Box, ScrollView, and fullscreen selection methods verify copied text loses display-only formatting without changing rendered output.
+
+Cases cover the reported blockquote through Pi's native clipboard callback, nested quotes, paragraph boundaries and literal newlines, wrapped paths, code indentation and literal pipes, partial Unicode selections, reverse drags, stale source fallback, unsupported list and non-transcript selections, missing renderer methods, reload takeover, and restoration of the prototype getter. Clipboard writes use a recording callback rather than touching the system clipboard.
+
 ## Hyperlink identity fixture
 
 Tagging cases verify anonymous OSC 8 opens gain one stable URI-derived id while everything else passes through.
