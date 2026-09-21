@@ -22,7 +22,7 @@ Tests cover per-launch identifiers, global versus trusted-project scope, malform
 
 Observer tests use synthetic receivers and Pi's actual bundled virtual-module exports, without running native registry checks or real installations.
 
-Tests verify receiver/argument/result identity, native rejection identity, trust and context isolation, disposal during an in-flight check, peer-safe wrapper restoration and rebinding, and missing-method failure. The virtual-host fixture verifies that wrappers affect bundled prototypes rather than the separate development copy.
+Tests verify receiver/argument/result identity, native rejection identity, trust and context isolation, disposal during an in-flight check, peer-safe wrapper restoration and rebinding, and missing-method failure. The virtual-host fixture verifies that wrappers affect bundled prototypes rather than the separate development copy. Notice fixtures use real Text components to verify restart wording, ANSI handling, preservation of old notices/release notes/changelog/package lists, and manual fallback when readiness or trust is absent. Startup scenarios verify guidance against actual preference, opt-out, persistence-failure, and unsupported-runtime branches.
 
 ## Settings preference
 

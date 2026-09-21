@@ -23,6 +23,9 @@ no state migration is required.
 
 - First launch: Pi performs its usual background checks and shows native update
   notices. This extension records positive results only, without extra checks.
+  When automatic updates are enabled, the launcher is supported, and readiness
+  is saved, notices say: **Restart Pi to install detected updates.** Otherwise
+  they retain Pi's manual update commands.
 - Next launch: previously recorded updates trigger Pi's native `update --self`,
   `update --extensions`, or `update --all`. No record means no updater widget,
   inventory subprocess, installer, or restart.
@@ -52,8 +55,9 @@ no state migration is required.
   have shorter deadlines. Termination includes installer descendants.
 
 Availability observation wraps Pi's existing package-check method and Pi-version
-notification method through its virtual host exports. Native checks and notices
-remain intact. These are not a public update-event API; incompatible method
+notification methods through its virtual host exports. Native checks remain
+intact. Eligible notices replace only the instruction line, preserving versions,
+package lists, release notes, and changelog links. These are not a public update-event API; incompatible method
 shapes disable automatic updates with a warning. No notification or failed check
 is not proof of being up to date. Native checks skip pinned/missing sources, so
 this extension does not proactively repair those installations without a notice.
@@ -102,7 +106,7 @@ with a warning; failed writes leave the previous setting unchanged.
 Disabling also stops recording new availability in this session, but does not
 interrupt an installer already running. Existing readiness records are retained.
 Re-enabling does not install immediately; the next launch can consume those
-records. Pi's own checks and update notices remain unchanged.
+records. When disabled, Pi's own checks and manual update notices remain intact.
 
 For a single launch, these overrides still take precedence over the setting:
 

@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import * as host from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import {
 	rememberUpdate,
 	type UpdateKind,
@@ -50,6 +51,7 @@ type Scenario = {
 	settingsEnabled?: boolean;
 	toggleEnabled?: boolean;
 	throughBase?: boolean;
+	unsupported?: boolean;
 };
 
 async function fixture(scenario: Scenario) {
@@ -152,6 +154,7 @@ else if(process.argv[2]==='update') {
 		])
 			delete process.env[key];
 		if (scenario.offline) process.env.PI_OFFLINE = "1";
+		if (scenario.unsupported) process.env.PI_MANAGED_INSTALL_ROOT = dir;
 		Object.defineProperty(process.stdin, "isTTY", {
 			configurable: true,
 			value: true,
@@ -182,6 +185,7 @@ else if(process.argv[2]==='update') {
 			};
 		}
 		class NativeMode {
+			chatContainer = { children: [] as Text[] };
 			editorContainer = { children: [] as SettingsSelectorComponent[] };
 			showSettingsSelector() {
 				this.editorContainer.children = [new SettingsSelectorComponent()];
@@ -190,7 +194,19 @@ else if(process.argv[2]==='update') {
 			constructor(sessionManager: unknown) {
 				this.sessionManager = sessionManager;
 			}
+			showPackageUpdateNotification(_packages: string[]) {
+				this.chatContainer.children.push(
+					new Text(
+						"Package Updates Available\nPackage updates are available. Run pi update --extensions",
+					),
+				);
+			}
 			showNewVersionNotification(_release: { version: string }) {
+				this.chatContainer.children.push(
+					new Text(
+						"Update Available\nNew version 999.0.0 is available. Run pi update",
+					),
+				);
 				notifications.push("Native Pi update notice");
 			}
 		}
@@ -332,10 +348,14 @@ else if(process.argv[2]==='update') {
 			list.onChange("proper-updater-enabled", String(scenario.toggleEnabled));
 		}
 		await new NativeManager().checkForAvailableUpdates();
+		const noticesMode = new NativeMode(ctx.sessionManager);
 		if (scenario.detected?.includes("pi"))
-			new NativeMode(ctx.sessionManager).showNewVersionNotification({
-				version: "999.0.0",
-			});
+			noticesMode.showNewVersionNotification({ version: "999.0.0" });
+		if (scenario.detected?.some((kind) => kind !== "pi"))
+			noticesMode.showPackageUpdateNotification(["proper-base"]);
+		const noticeTexts = noticesMode.chatContainer.children.map(
+			(child) => Reflect.get(child, "text") as string,
+		);
 		if (scenario.persistenceFailure)
 			await rm(join(agentDir, "proper-updater-ready"));
 		if (scenario.secondLaunch) {
@@ -396,6 +416,7 @@ else if(process.argv[2]==='update') {
 			remaining,
 			preferenceEnabled: readEnabled(agentDir),
 			baseReady,
+			noticeTexts,
 			flagsRegistered,
 			eventCounts,
 		};
@@ -432,6 +453,32 @@ test("proper-base registers one updater and runs base setup before installation"
 	assert.deepEqual(result.invoked, ["update", "--all", "--no-approve"]);
 	assert.equal(result.shutdown, true);
 	assert.equal(result.replacements.length, 1);
+});
+
+test("native notices recommend restart only when auto-update readiness can be used", async () => {
+	const enabled = await fixture({ ready: [], detected: ["pi", "user"] });
+	assert.equal(enabled.noticeTexts.length, 2);
+	assert.ok(
+		enabled.noticeTexts.every((text) =>
+			text.includes("Restart Pi to install detected updates."),
+		),
+	);
+	for (const scenario of [
+		{ settingsEnabled: false },
+		{ args: ["--no-auto-update"] },
+		{ persistenceFailure: true },
+		{ unsupported: true },
+	]) {
+		const disabled = await fixture({
+			...scenario,
+			ready: [],
+			detected: ["pi", "user"],
+		});
+		assert.equal(disabled.invoked, undefined);
+		assert.ok(
+			disabled.noticeTexts.every((text) => text.includes("Run pi update")),
+		);
+	}
 });
 
 // @lat: [[auto-update-tests#Next-launch updates]]

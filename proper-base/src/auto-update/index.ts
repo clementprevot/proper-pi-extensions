@@ -42,11 +42,13 @@ export function registerAutoUpdates(pi: ExtensionAPI): void {
 	let cleanupSignals: (() => void) | undefined;
 	let restarting = false;
 	let pending: Promise<void> | undefined;
+	let restartSupported = false;
 	const agentDir = getAgentDir();
 	const createObserver = () =>
 		observeAvailability(agentDir, (kind, ctx) => {
 			try {
 				rememberUpdate(agentDir, kind, ctx.cwd);
+				return restartSupported;
 			} catch (error) {
 				if (typeof (error as NodeJS.ErrnoException).code !== "string")
 					throw error;
@@ -54,6 +56,7 @@ export function registerAutoUpdates(pi: ExtensionAPI): void {
 					"proper-base updates: Could not save update availability. Run pi update --all manually.",
 					"warning",
 				);
+				return false;
 			}
 		});
 	let observer: ReturnType<typeof observeAvailability>;
@@ -120,12 +123,10 @@ export function registerAutoUpdates(pi: ExtensionAPI): void {
 		}
 		controller = new AbortController();
 		const signal = controller.signal;
-		if (
-			!(await pendingUpdates(agentDir, ctx.cwd, ctx.isProjectTrusted())).files
-				.length ||
-			signal.aborted
-		)
-			return;
+		const hasPending =
+			(await pendingUpdates(agentDir, ctx.cwd, ctx.isProjectTrusted())).files
+				.length > 0;
+		if (signal.aborted) return;
 		const execve = process.execve;
 		const packageDir = getPackageDir();
 		const entry = process.argv[1];
@@ -142,9 +143,10 @@ export function registerAutoUpdates(pi: ExtensionAPI): void {
 			!packageDir.includes("/lib/node_modules/") ||
 			!entry
 		) {
-			warn(
-				"Automatic updates require an npm-installed Pi on Linux/macOS with Node 22.19+. Run pi update --all manually.",
-			);
+			if (hasPending)
+				warn(
+					"Automatic updates require an npm-installed Pi on Linux/macOS with Node 22.19+. Run pi update --all manually.",
+				);
 			return;
 		}
 		const manifest = JSON.parse(
@@ -155,10 +157,13 @@ export function registerAutoUpdates(pi: ExtensionAPI): void {
 			(await realpath(entry)) !==
 				(await realpath(join(packageDir, manifest.bin.pi)))
 		) {
-			warn("Unrecognized Pi launcher; run pi update --all manually.");
+			if (hasPending)
+				warn("Unrecognized Pi launcher; run pi update --all manually.");
 			return;
 		}
 		if (signal.aborted) return;
+		restartSupported = true;
+		if (!hasPending) return;
 		let interrupted = false;
 		const cancel = () => {
 			interrupted = true;

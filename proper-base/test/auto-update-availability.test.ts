@@ -58,7 +58,10 @@ test("native observers preserve receivers, results and failures, and isolate own
 		},
 	);
 	const notices: string[] = [];
-	let observer = observeAvailability("/agent", (kind) => notices.push(kind));
+	let observer = observeAvailability("/agent", (kind) => {
+		notices.push(kind);
+		return true;
+	});
 	let peer: ReturnType<typeof observeAvailability>;
 	try {
 		assert.ok(observer);
@@ -110,12 +113,16 @@ test("native observers preserve receivers, results and failures, and isolate own
 		assert.equal(await inflight, updates);
 		assert.equal(notices.length, 0);
 		assert.equal(manager.checkForAvailableUpdates, nativeCheck);
-		observer = observeAvailability("/agent", (kind) => notices.push(kind));
+		observer = observeAvailability("/agent", (kind) => {
+			notices.push(kind);
+			return true;
+		});
 		assert.ok(observer);
 		observer.setContext(owner);
-		peer = observeAvailability("/agent", (kind) =>
-			notices.push(`peer:${kind}`),
-		);
+		peer = observeAvailability("/agent", (kind) => {
+			notices.push(`peer:${kind}`);
+			return true;
+		});
 		assert.ok(peer);
 		peer.setContext(owner);
 		observer.dispose();
@@ -127,7 +134,7 @@ test("native observers preserve receivers, results and failures, and isolate own
 		assert.equal(manager.checkForAvailableUpdates, nativeCheck);
 		Reflect.set(manager, "checkForAvailableUpdates", undefined);
 		assert.equal(
-			observeAvailability("/agent", () => {}),
+			observeAvailability("/agent", () => false),
 			undefined,
 		);
 	} finally {
@@ -167,7 +174,7 @@ test("Pi's bundled virtual host supplies the actual prototypes, not the developm
 	const { observeAvailability: observe } = await jiti.import(
 		new URL("../src/auto-update/availability.ts", import.meta.url).pathname,
 	);
-	const observer = observe("/synthetic-agent", () => {});
+	const observer = observe("/synthetic-agent", () => false);
 	try {
 		assert.ok(observer);
 		assert.notEqual(

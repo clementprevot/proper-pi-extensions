@@ -6,7 +6,7 @@ proper-base records native background update availability and installs it on a l
 
 Only the first startup event in a process can install previously recorded updates.
 
-Without a prior-launch readiness record, there is no inventory subprocess, installer, updater widget, or restart. Pi's own background checks and notifications remain unchanged. Reloads and session replacements never repeat installation, and offline or explicit opt-out launches neither observe nor install updates.
+Without a prior-launch readiness record, there is no inventory subprocess, installer, updater widget, or restart. Pi's own background checks remain unchanged; eligible update notices explain that restarting installs detected updates. Reloads and session replacements never repeat installation, and offline or explicit opt-out launches neither observe nor install updates.
 
 Automatic updating requires Pi 0.86+, Node 22.19+, and a recognized npm Pi installation under `lib/node_modules` on Linux/macOS. RPC, print/JSON, SDK, non-TTY, Bun, Windows, pnpm, and installer-managed launches are skipped. This is an extension-only implementation, not a universal pre-launch guarantee. The updater is registered once by proper-base's existing entry point, after base lifecycle handlers; it is not a second Pi extension.
 
@@ -26,9 +26,11 @@ Readiness is checked before expensive work and rechecked under the installer loc
 
 ## Native availability adapter
 
-The adapter observes existing native calls only. It never starts a check, scrapes rendered text, or modifies native notifications.
+The adapter observes existing native calls without starting duplicate checks. Eligible native notices say: Restart Pi to install detected updates.
 
-The exported `DefaultPackageManager.checkForAvailableUpdates` result retains user/project scope. Its receiver must match the current agent directory and context working directory; project observations additionally require trust. `InteractiveMode.showNewVersionNotification` observes positive Pi releases only and must belong to the current session manager. Methods retain their original receivers, arguments, results, rendering, and native errors. Persistence errors with filesystem codes produce a sanitized warning rather than changing native results.
+The exported `DefaultPackageManager.checkForAvailableUpdates` result retains user/project scope. Its receiver must match the current agent directory and context working directory; project observations additionally require trust. `InteractiveMode.showNewVersionNotification` observes positive Pi releases only and must belong to the current session manager. Methods retain their original receivers, arguments, results, and native errors. Persistence errors with filesystem codes produce a sanitized warning rather than changing native results.
+
+After a native Pi/package notice renders, only its newly added Text instruction line is replaced, preserving the title, version, package list, release notes, and changelog. This display-only match never determines readiness. Restart guidance requires saved readiness, an enabled observer, and a supported launcher validated at startup using local file reads. Package guidance additionally requires every reported scope to be recorded and current project trust. Disabled, unsupported, failed-persistence, or unfamiliar notice shapes keep native manual-command instructions. Historical notices are untouched.
 
 Imports use Pi's virtual host exports so bundled CLI prototypes, not an independent development copy, are wrapped. Missing methods disable automatic updates with a warning. Observer ownership is released on shutdown and rebound on session start; in-flight results belonging to disposed or replaced contexts are ignored. The shared versioned method-wrapper protocol restores methods without clobbering active peers. Compatibility is exercised against the installed Pi 0.86.1 bundled host; this is a compatibility adapter, not an official update-event API.
 
