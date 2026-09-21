@@ -2,7 +2,8 @@
 
 Independently installable local Pi packages: `proper-base/` (TS extension),
 `proper-llm-router/` (TS routing extension + exemplar corpus),
-`proper-pacify/` (TS tone-rewriting extension), and `proper-flow/`
+`proper-pacify/` (TS tone-rewriting extension), `proper-compact/` (TS compaction
+and transcript recall extension), and `proper-flow/`
 (workflow prompts + Beads formulas + implementation rail). Root is NOT an npm
 package/workspace — use `npm --prefix <pkg>` or cd into each package.
 
@@ -27,6 +28,7 @@ Fresh checkout setup (repo root):
 npm --prefix proper-base install
 npm --prefix proper-llm-router install
 npm --prefix proper-pacify install
+npm --prefix proper-compact install
 git config core.hooksPath .beads/hooks
 pre-commit install-hooks
 ```
@@ -79,4 +81,8 @@ publish-npm.yml --repo sharaf-nassar/proper-pi-extensions --env npm-release`.
 - Router self-registers the `llm-router/auto` placeholder at load; a
   manual models.json entry is optional. Its port-1 URL is an intentional
   dead placeholder, not a service.
-- Toolchain: Node 22.19+, Pi 0.86.0 compatibility, TypeScript 6.
+- Toolchain: Node 22.19+, Pi 0.86.0 compatibility (proper-compact requires
+  0.86.1), TypeScript 6.
+- proper-compact is not published yet. Its first release requires maintainer
+  authentication and subsequent npm trusted-publisher registration. No global
+  installation or provider inference belongs in its offline test gate.

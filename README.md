@@ -16,6 +16,7 @@ Ponytail, without copying local credentials or private integrations.
 | [proper-base](./proper-base/README.md) | Pi extension | Improves transcripts, session titles, `/clear`, prompt history and search, editor keys, autocomplete, fullscreen navigation, image handling, cancellation, and footer layout. |
 | [proper-llm-router](./proper-llm-router/README.md) | Pi extension | Routes each session's first task to one of seven model tiers, then handles command pins, per-task overrides, quota swaps, fallbacks, and `ultra` thinking support. |
 | [proper-pacify](./proper-pacify/README.md) | Pi extension | Adds `/pacify`, `/pacify-session`, and `/pacify-config` for tone-only prompt rewriting, automatic prompt interception, and before/after session entries. |
+| [proper-compact](./proper-compact/README.md) | Pi extension | Adds evidence-preserving compaction, bounded multi-call summaries, and branch-scoped transcript recall. Requires Pi 0.86.1; local checkout only until first publication. |
 | [proper-flow](./proper-flow/README.md) | Pi prompt package | Adds `/triage`, `/file`, `/spec`, `/refine`, and `/implement-ready` for filing, planning, refining, and implementing Beads work, and ships the `constitution` and `speckit` formulas plus the worktree, retry, integration, and audit rail behind them. |
 
 `proper-base` and `proper-llm-router` work independently. `proper-flow`
@@ -49,6 +50,7 @@ Local checkout:
 pi install ./proper-base
 pi install ./proper-llm-router
 pi install ./proper-pacify
+pi install ./proper-compact
 pi install ./proper-flow
 ```
 
@@ -88,7 +90,11 @@ npm allows trusted-publisher configuration; later versions use only this flow.
 `proper-pacify` has its initial publish but still needs trusted-publisher
 registration.
 
-Configure all four npm packages with the same trusted publisher:
+`proper-compact` is not published yet. Before its first release, a maintainer
+must bootstrap npm publication and add its tag prefix to the protected release
+environment and tag policies. Development does not perform those actions.
+
+Configure all five packages with the same trusted publisher:
 
 - GitHub repository: `sharaf-nassar/proper-pi-extensions`
 - Workflow: `publish-npm.yml`
@@ -97,8 +103,8 @@ Configure all four npm packages with the same trusted publisher:
 
 Keep the GitHub `npm-release` environment free of required reviewers and wait
 timers so releases stay automatic. Restrict its deployment policies to
-`proper-base-v*`, `proper-llm-router-v*`, `proper-pacify-v*`,
-and `proper-flow-v*` tags. Restrict tag creation or deletion
+`proper-base-v*`, `proper-compact-v*`, `proper-llm-router-v*`,
+`proper-pacify-v*`, and `proper-flow-v*` tags. Restrict tag creation or deletion
 to maintainers. Main-branch rules must allow the
 release maintainer to bypass a PR-only rule for the script's atomic
 version-commit plus tag push. After the first trusted release succeeds, set each
@@ -121,6 +127,7 @@ Initialize a fresh checkout once:
 npm --prefix proper-base install
 npm --prefix proper-llm-router install
 npm --prefix proper-pacify install
+npm --prefix proper-compact install
 
 git config core.hooksPath .beads/hooks
 pre-commit install-hooks

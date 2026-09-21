@@ -5,6 +5,7 @@ import { test } from "node:test";
 const root = new URL("../", import.meta.url);
 const packages = [
 	"proper-base",
+	"proper-compact",
 	"proper-flow",
 	"proper-llm-router",
 	"proper-pacify",

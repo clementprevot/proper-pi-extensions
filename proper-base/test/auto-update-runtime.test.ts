@@ -245,12 +245,23 @@ test("timeout and abort terminate subprocesses", async () => {
 	);
 });
 
-test("timeout kills detached install descendants even when they ignore SIGTERM", async () => {
-	const script = `const {spawn}=require('node:child_process');const c=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'ignore'});console.log(c.pid);setInterval(()=>{},1000);`;
+test("abort kills ready detached install descendants even when they ignore SIGTERM", async () => {
+	const controller = new AbortController();
+	const descendant = `process.on('SIGTERM',()=>{});process.send(process.pid);setInterval(()=>{},1000);`;
+	const script = `const {spawn}=require('node:child_process');const c=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','ignore','ignore','ipc']});c.once('message',pid=>console.log(pid));setInterval(()=>{},1000);`;
 	const result = await run(process.execPath, ["-e", script], {
 		...options(),
-		timeout: 250,
+		signal: controller.signal,
+		// Bound startup, but exercise the shared timeout/abort cleanup only after
+		// the descendant confirms its SIGTERM handler is installed.
+		timeout: 10_000,
+		onLine: () => controller.abort(),
 	});
+	assert.equal(
+		controller.signal.aborted,
+		true,
+		"descendant never became ready",
+	);
 	assert.equal(result.stopped, true);
 	const pid = Number(result.stdout.trim());
 	assert.ok(pid > 0);
@@ -266,7 +277,9 @@ test("timeout kills detached install descendants even when they ignore SIGTERM",
 					"installer descendant survived SIGKILL",
 				);
 			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+				const code = (error as NodeJS.ErrnoException).code;
+				// Reaping before open yields ENOENT; after open can yield ESRCH.
+				if (code === "ENOENT" || code === "ESRCH") break;
 				throw error;
 			}
 			await delay(10);

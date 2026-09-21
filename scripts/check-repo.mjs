@@ -5,11 +5,17 @@ import { readFileSync } from "node:fs";
 
 const PACKAGES = [
 	"proper-base",
+	"proper-compact",
 	"proper-flow",
 	"proper-llm-router",
 	"proper-pacify",
 ];
-const LOCKED_PACKAGES = ["proper-base", "proper-llm-router", "proper-pacify"];
+const LOCKED_PACKAGES = [
+	"proper-base",
+	"proper-compact",
+	"proper-llm-router",
+	"proper-pacify",
+];
 
 function run(command, args, cwd = ".") {
 	console.log(
@@ -36,6 +42,7 @@ function checkJsonl(path) {
 function fast() {
 	run("node", ["--test", "test/*.test.mjs"]);
 	run("npm", ["test"], "proper-base");
+	run("npm", ["test"], "proper-compact");
 	run("npm", ["test"], "proper-flow");
 	run("npm", ["run", "test:unit"], "proper-llm-router");
 	run("npm", ["run", "test"], "proper-pacify");
