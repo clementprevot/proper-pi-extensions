@@ -6,10 +6,11 @@
  *
  * Wrappers and env or assignment prefixes stay rejected. Compound shell
  * commands carrying a direct `git … commit …`, `-F`/`--file` message files,
- * and over-length message lines are governed by CommitGuardConfig: compound
- * commands and file messages default to allowed, the 72-character line
- * limit defaults to off. Dynamic tokens, message-mutating flags, and
- * attribution lines always stay rejected.
+ * and over-length message lines are governed by CommitGuardConfig: by
+ * default all three follow the upstream-strict behavior (rejected,
+ * rejected, enforced), and the toggles in `src/settings.ts` relax them.
+ * Dynamic tokens, message-mutating flags, and attribution lines always
+ * stay rejected.
  */
 
 const MAX_LINE_LENGTH = 72;
@@ -23,9 +24,9 @@ export type CommitGuardConfig = {
 
 export const COMMIT_GUARD_DEFAULTS: CommitGuardConfig = {
 	enabled: true,
-	allowCompoundCommands: true,
-	allowFileMessage: true,
-	enforceLineLength: false,
+	allowCompoundCommands: false,
+	allowFileMessage: false,
+	enforceLineLength: true,
 };
 
 const FILE_MESSAGE_ERROR =
@@ -298,10 +299,10 @@ function finalTrailerBlock(lines: string[]): Set<number> {
 }
 
 /** Validate final commit message text against the house rules. The
- * 72-character limit applies only when `enforceLineLength` is set. */
+ * 72-character limit is enforced unless `enforceLineLength` is false. */
 export function validateMessageText(
 	text: string,
-	enforceLineLength = false,
+	enforceLineLength = true,
 ): string[] {
 	const lines = text.split(/\r\n|\r|\n/);
 	if (text === "") lines.length = 0;

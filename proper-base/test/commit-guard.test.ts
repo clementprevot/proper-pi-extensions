@@ -55,7 +55,7 @@ test("unparseable commands mentioning git commit block fail-safe", () => {
 	assert.match(reason, /Unable to parse git commit command/);
 });
 
-test("compound commands pass by default", () => {
+test("compound commands are rejected by default", () => {
 	const commands = [
 		'git add -A && git commit -m "feat: x"',
 		'cd /repo && git commit -m "feat: x"',
@@ -64,13 +64,16 @@ test("compound commands pass by default", () => {
 		'git commit -m "feat: x"; git log',
 	];
 	for (const command of commands) {
-		assert.equal(commitGuardReason(command), undefined, command);
+		const reason = commitGuardReason(command);
+		assert.ok(reason, command);
+		assert.match(reason, /without compound shell/, command);
 	}
 });
 
-test("compound commands can be re-banned through the config", () => {
+test("compound commands pass when allowed through the config", () => {
 	const commands = [
 		'git add -A && git commit -m "feat: x"',
+		'cd /repo && git commit -m "feat: x"',
 		'git commit -m "feat: x" && git status',
 		'git commit -m "feat: x" | tail',
 		'git commit -m "feat: x"; git log',
@@ -78,10 +81,9 @@ test("compound commands can be re-banned through the config", () => {
 	for (const command of commands) {
 		const reason = commitGuardReason(
 			command,
-			strict({ allowCompoundCommands: false }),
+			strict({ allowCompoundCommands: true }),
 		);
-		assert.ok(reason, command);
-		assert.match(reason, /without compound shell/, command);
+		assert.equal(reason, undefined, command);
 	}
 });
 
@@ -135,15 +137,16 @@ test("message-mutating flags stay rejected with hook wording", () => {
 	}
 });
 
-test("file message sources pass by default and skip text validation", () => {
+test("file message sources pass when allowed and skip text validation", () => {
 	const commands = [
 		"git commit -F /tmp/msg",
 		'git commit --file=/tmp/msg -m "feat: x"',
 		"git commit -F/tmp/msg",
 	];
 	for (const command of commands) {
-		assert.equal(commitGuardReason(command), undefined, command);
-		const { message, errors } = extractMessageFromCommand(command);
+		const config = strict({ allowFileMessage: true });
+		assert.equal(commitGuardReason(command, config), undefined, command);
+		const { message, errors } = extractMessageFromCommand(command, config);
 		if (command.includes("-m")) {
 			assert.equal(message, "feat: x", command);
 		} else {
@@ -153,11 +156,10 @@ test("file message sources pass by default and skip text validation", () => {
 	}
 });
 
-test("file message sources can be re-banned through the config", () => {
-	const config = strict({ allowFileMessage: false });
+test("file message sources are rejected by default", () => {
 	const commands = ["git commit -F /tmp/msg", "git commit --file=/tmp/msg"];
 	for (const command of commands) {
-		const reason = commitGuardReason(command, config);
+		const reason = commitGuardReason(command);
 		assert.ok(reason, command);
 		assert.match(reason, /file cannot be validated/, command);
 	}
@@ -211,17 +213,17 @@ test("message text rules match the hook", () => {
 	]);
 });
 
-test("the line length limit applies only when enforced", () => {
+test("the line length limit is enforced by default", () => {
 	const longSubject = `feat: ${"x".repeat(70)}`;
 	const longBody = `feat: subject\n\n${"y".repeat(73)}`;
-	assert.deepEqual(validateMessageText(longSubject), []);
-	assert.deepEqual(validateMessageText(longBody), []);
-	assert.deepEqual(validateMessageText(longSubject, true), [
+	assert.deepEqual(validateMessageText(longSubject), [
 		"line 1: line exceeds 72 characters",
 	]);
-	assert.deepEqual(validateMessageText(longBody, true), [
+	assert.deepEqual(validateMessageText(longBody), [
 		"line 3: line exceeds 72 characters",
 	]);
+	assert.deepEqual(validateMessageText(longSubject, false), []);
+	assert.deepEqual(validateMessageText(longBody, false), []);
 });
 
 test("final trailer block is exempt from line length", () => {
@@ -260,7 +262,6 @@ test("forbidden attribution lines are rejected everywhere", () => {
 test("blocked reasons report every error at once", () => {
 	const reason = commitGuardReason(
 		`git commit -m "feat: ${"x".repeat(70)}" -m "${"y".repeat(80)}"`,
-		strict({ enforceLineLength: true }),
 	);
 	assert.ok(reason);
 	assert.match(reason, /^Commit message validation failed:/);

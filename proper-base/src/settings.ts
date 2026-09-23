@@ -66,9 +66,12 @@ const TOGGLE_DEFAULTS: Record<ToggleKey, boolean> = {
 	sessionRail: true,
 	editorMouse: true,
 	commitGuard: true,
-	commitGuardCompoundCommands: true,
-	commitGuardLineLength: false,
-	commitGuardFileMessage: true,
+	// Upstream-strict commit guard defaults: compound commands and -F file
+	// messages rejected, the 72-character line limit enforced. The toggles
+	// relax each aspect when set to true (compound, file) or false (length).
+	commitGuardCompoundCommands: false,
+	commitGuardLineLength: true,
+	commitGuardFileMessage: false,
 	clipboardLeakGuard: true,
 };
 

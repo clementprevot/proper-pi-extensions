@@ -165,30 +165,30 @@ test("a missing or damaged config enables both and installs nothing twice", asyn
 });
 
 // @lat: [[lat.md/proper-base/tests#Verification#Guard toggle fixtures]]
-test("guard toggles default to the fork defaults and persist", () => {
+test("guard toggles default to the package defaults and persist", () => {
 	const dir = mkdtempSync(join(tmpdir(), "proper-base-guards-"));
 
 	assert.deepEqual(readCommitGuardConfig(dir), {
 		enabled: true,
-		allowCompoundCommands: true,
-		allowFileMessage: true,
-		enforceLineLength: false,
+		allowCompoundCommands: false,
+		allowFileMessage: false,
+		enforceLineLength: true,
 	});
 	assert.equal(readClipboardLeakGuardEnabled(dir), true);
 
 	writeFileSync(
 		join(dir, "proper-base.json"),
-		'{\n\t"commitGuard": false,\n\t"commitGuardLineLength": true\n}\n',
+		'{\n\t"commitGuard": false,\n\t"commitGuardCompoundCommands": true\n}\n',
 	);
 	const config = readCommitGuardConfig(dir);
 	assert.equal(config.enabled, false);
-	assert.equal(config.enforceLineLength, true);
 	assert.equal(config.allowCompoundCommands, true);
+	assert.equal(config.enforceLineLength, true);
 	assert.equal(readClipboardLeakGuardEnabled(dir), true);
 
 	writeFileSync(join(dir, "proper-base.json"), "not json");
 	assert.equal(readCommitGuardConfig(dir).enabled, true);
-	assert.equal(readCommitGuardConfig(dir).enforceLineLength, false);
+	assert.equal(readCommitGuardConfig(dir).enforceLineLength, true);
 	assert.equal(readClipboardLeakGuardEnabled(dir), true);
 });
 
@@ -209,10 +209,16 @@ test("the settings menu gains the guard toggles", async () => {
 		assert.ok(item, id);
 		assert.deepEqual(item.values, ["true", "false"]);
 	}
-	// The 72-character limit defaults to off; everything else defaults on.
+	// Upstream-strict defaults: the line limit is on, compound and -F are off.
 	assert.equal(
 		selector.settingsList.items.find(
 			(i) => i.id === "proper-base-commit-line-length",
+		)?.currentValue,
+		"true",
+	);
+	assert.equal(
+		selector.settingsList.items.find(
+			(i) => i.id === "proper-base-commit-compound",
 		)?.currentValue,
 		"false",
 	);
