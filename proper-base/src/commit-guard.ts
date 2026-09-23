@@ -4,13 +4,32 @@
  * `commit_message_validator.py` (command mode; the amend guard is
  * intentionally not ported).
  *
- * The command must be one direct `git … commit …` — no wrappers, env
- * prefixes, compound shell, or dynamic tokens — with literal `-m`/`--message`
- * text only. Message text must keep the subject and non-trailer body lines
- * within 72 characters, a blank second line, and no attribution lines.
+ * Wrappers and env or assignment prefixes stay rejected. Compound shell
+ * commands carrying a direct `git … commit …`, `-F`/`--file` message files,
+ * and over-length message lines are governed by CommitGuardConfig: compound
+ * commands and file messages default to allowed, the 72-character line
+ * limit defaults to off. Dynamic tokens, message-mutating flags, and
+ * attribution lines always stay rejected.
  */
 
 const MAX_LINE_LENGTH = 72;
+
+export type CommitGuardConfig = {
+	enabled: boolean;
+	allowCompoundCommands: boolean;
+	allowFileMessage: boolean;
+	enforceLineLength: boolean;
+};
+
+export const COMMIT_GUARD_DEFAULTS: CommitGuardConfig = {
+	enabled: true,
+	allowCompoundCommands: true,
+	allowFileMessage: true,
+	enforceLineLength: false,
+};
+
+const FILE_MESSAGE_ERROR =
+	"Commit message from a file cannot be validated. Use literal -m/--message text.";
 
 const TRAILER_RE = /^[A-Za-z0-9][A-Za-z0-9-]*:\s+\S/;
 const CONTINUATION_RE = /^[ \t]/;
@@ -79,8 +98,6 @@ const GIT_GLOBAL_OPTS_WITH_EQUALS = [
 ];
 
 const UNSUPPORTED_MESSAGE_FLAGS: Record<string, string> = {
-	"-F": "Use literal -m/--message text instead of -F/--file.",
-	"--file": "Use literal -m/--message text instead of -F/--file.",
 	"-c": "Do not reuse commit messages with -c/--reedit-message.",
 	"-C": "Do not reuse commit messages with -C/--reuse-message.",
 	"--reuse-message": "Do not reuse commit messages with -C/--reuse-message.",
@@ -280,8 +297,12 @@ function finalTrailerBlock(lines: string[]): Set<number> {
 	return indexes;
 }
 
-/** Validate final commit message text against the house rules. */
-export function validateMessageText(text: string): string[] {
+/** Validate final commit message text against the house rules. The
+ * 72-character limit applies only when `enforceLineLength` is set. */
+export function validateMessageText(
+	text: string,
+	enforceLineLength = false,
+): string[] {
 	const lines = text.split(/\r\n|\r|\n/);
 	if (text === "") lines.length = 0;
 	const errors: string[] = [];
@@ -291,7 +312,7 @@ export function validateMessageText(text: string): string[] {
 		return ["line 1: subject line is missing or empty"];
 	}
 
-	if ((lines[0] as string).length > MAX_LINE_LENGTH) {
+	if (enforceLineLength && (lines[0] as string).length > MAX_LINE_LENGTH) {
 		errors.push(`line 1: line exceeds ${MAX_LINE_LENGTH} characters`);
 	}
 
@@ -301,7 +322,11 @@ export function validateMessageText(text: string): string[] {
 
 	lines.forEach((line, index) => {
 		const lineNumber = index + 1;
-		if (!trailerBlock.has(index) && line.length > MAX_LINE_LENGTH) {
+		if (
+			enforceLineLength &&
+			!trailerBlock.has(index) &&
+			line.length > MAX_LINE_LENGTH
+		) {
 			errors.push(
 				`line ${lineNumber}: line exceeds ${MAX_LINE_LENGTH} characters`,
 			);
@@ -449,7 +474,6 @@ function startsWrappedGitCommit(tokens: ShellToken[], start: number): boolean {
 function unsupportedFlagMessage(flag: string): string | undefined {
 	if (flag in UNSUPPORTED_MESSAGE_FLAGS) return UNSUPPORTED_MESSAGE_FLAGS[flag];
 	const prefixed: readonly (readonly [string, string])[] = [
-		["--file=", UNSUPPORTED_MESSAGE_FLAGS["--file"] as string],
 		[
 			"--reuse-message=",
 			UNSUPPORTED_MESSAGE_FLAGS["--reuse-message"] as string,
@@ -474,7 +498,13 @@ function parseShortOptions(
 	token: ShellToken,
 	args: ShellToken[],
 	index: number,
-): { messages: ShellToken[]; index: number; errors: string[] } {
+	fileAllowed: boolean,
+): {
+	messages: ShellToken[];
+	index: number;
+	errors: string[];
+	fileUsed: boolean;
+} {
 	const messages: ShellToken[] = [];
 	const errors: string[] = [];
 	const shortFlags = token.text.slice(1);
@@ -486,17 +516,30 @@ function parseShortOptions(
 			const attachedValue = shortFlags.slice(cursor + 1);
 			if (attachedValue) {
 				messages.push({ text: attachedValue, dynamic: token.dynamic });
-				return { messages, index, errors };
+				return { messages, index, errors, fileUsed: false };
 			}
 			if (index + 1 >= args.length) {
 				errors.push("Commit message is missing after -m.");
-				return { messages, index, errors };
+				return { messages, index, errors, fileUsed: false };
 			}
 			messages.push(args[index + 1] as ShellToken);
-			return { messages, index: index + 1, errors };
+			return { messages, index: index + 1, errors, fileUsed: false };
 		}
 
-		if ("FcCtes".includes(flag)) {
+		if (flag === "F") {
+			if (!fileAllowed) errors.push(FILE_MESSAGE_ERROR);
+			const attachedValue = shortFlags.slice(cursor + 1);
+			if (attachedValue) {
+				return { messages, index, errors, fileUsed: fileAllowed };
+			}
+			if (index + 1 >= args.length) {
+				errors.push("Commit message file is missing after -F.");
+				return { messages, index, errors, fileUsed: false };
+			}
+			return { messages, index: index + 1, errors, fileUsed: fileAllowed };
+		}
+
+		if ("cCtes".includes(flag)) {
 			errors.push(
 				unsupportedFlagMessage(`-${flag}`) ?? `Unsupported flag: -${flag}`,
 			);
@@ -505,24 +548,28 @@ function parseShortOptions(
 				flag !== "e" &&
 				index + 1 < args.length
 			) {
-				return { messages, index: index + 1, errors };
+				return { messages, index: index + 1, errors, fileUsed: false };
 			}
-			return { messages, index, errors };
+			return { messages, index, errors, fileUsed: false };
 		}
 
 		cursor += 1;
 	}
 
-	return { messages, index, errors };
+	return { messages, index, errors, fileUsed: false };
 }
 
 /**
  * Extract the literal commit message from a shell command. Returns the
- * joined message when the command is a valid direct commit, `null` with no
- * errors when the command contains no commit, and `null` with errors when
- * the commit invocation itself is not allowed.
+ * joined message when the command carries a valid commit invocation,
+ * `null` with no errors when the command contains no commit or hands the
+ * message to a `-F`/`--file` file, and `null` with errors when the commit
+ * invocation itself is not allowed.
  */
-export function extractMessageFromCommand(command: string): {
+export function extractMessageFromCommand(
+	command: string,
+	options: CommitGuardConfig = COMMIT_GUARD_DEFAULTS,
+): {
 	message: string | null;
 	errors: string[];
 } {
@@ -548,23 +595,26 @@ export function extractMessageFromCommand(command: string): {
 			return {
 				message: null,
 				errors: [
-					"Commit command must be a direct `git ... commit ...` invocation. Wrappers, env prefixes, and compound shell commands are not allowed.",
+					"Commit command must contain a direct `git ... commit ...` invocation. Wrappers and env prefixes are not allowed.",
 				],
 			};
 		}
 		return { message: null, errors: [] };
 	}
 
-	if (directStart !== 0 || starts.length > 1) {
+	if (
+		options.allowCompoundCommands === false &&
+		(directStart !== 0 || starts.length > 1)
+	) {
 		return {
 			message: null,
 			errors: [
-				"Commit command must be a direct `git ... commit ...` invocation. Wrappers, env prefixes, and compound shell commands are not allowed.",
+				"Commit command must be a single direct `git ... commit ...` invocation without compound shell.",
 			],
 		};
 	}
 
-	const commitArgs = findCommitArgs(tokens);
+	const commitArgs = findCommitArgs(tokens.slice(directStart));
 	if (commitArgs === null) return { message: null, errors: [] };
 
 	if (commitArgs.some((token) => token.dynamic)) {
@@ -577,9 +627,9 @@ export function extractMessageFromCommand(command: string): {
 	}
 
 	const messages: ShellToken[] = [];
+	let fileUsed = false;
 	const errors: string[] = [];
 	let idx = 0;
-
 	while (idx < commitArgs.length) {
 		const token = commitArgs[idx] as ShellToken;
 		const tokenText = token.text;
@@ -588,6 +638,13 @@ export function extractMessageFromCommand(command: string): {
 		if (unsupported !== undefined) {
 			errors.push(unsupported);
 			idx += 1;
+			continue;
+		}
+
+		if (tokenText === "--file" || tokenText.startsWith("--file=")) {
+			if (!options.allowFileMessage) errors.push(FILE_MESSAGE_ERROR);
+			fileUsed = options.allowFileMessage;
+			idx += tokenText === "--file" ? 2 : 1;
 			continue;
 		}
 
@@ -616,9 +673,15 @@ export function extractMessageFromCommand(command: string): {
 		}
 
 		if (tokenText.startsWith("-") && tokenText !== "-") {
-			const parsed = parseShortOptions(token, commitArgs, idx);
+			const parsed = parseShortOptions(
+				token,
+				commitArgs,
+				idx,
+				options.allowFileMessage,
+			);
 			messages.push(...parsed.messages);
 			errors.push(...parsed.errors);
+			fileUsed ||= parsed.fileUsed;
 			idx = parsed.index + 1;
 			continue;
 		}
@@ -627,6 +690,10 @@ export function extractMessageFromCommand(command: string): {
 	}
 
 	if (errors.length) return { message: null, errors };
+
+	if (fileUsed && !messages.length) {
+		return { message: null, errors: [] };
+	}
 
 	if (!messages.length) {
 		return {
@@ -659,12 +726,20 @@ export function extractMessageFromCommand(command: string): {
  * skipped without tokenizing, so unrelated commands with heredocs or odd
  * quoting are never blocked.
  */
-export function commitGuardReason(command: string): string | undefined {
-	if (!/\bgit\b/.test(command) || !/\bcommit\b/.test(command)) return undefined;
+export function commitGuardReason(
+	command: string,
+	config: CommitGuardConfig = COMMIT_GUARD_DEFAULTS,
+): string | undefined {
+	if (!config.enabled) return undefined;
+	if (!/\bgit\b/.test(command) || !/\bcommit\b/.test(command)) {
+		return undefined;
+	}
+	const { message, errors } = extractMessageFromCommand(command, config);
 
-	const { message, errors } = extractMessageFromCommand(command);
 	const allErrors =
-		errors.length || message === null ? errors : validateMessageText(message);
+		errors.length || message === null
+			? errors
+			: validateMessageText(message, config.enforceLineLength);
 	if (!allErrors.length) return undefined;
 	return [
 		"Commit message validation failed:",

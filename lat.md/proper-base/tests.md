@@ -82,6 +82,10 @@ The fixture drives `installClipboardLeakGuard` against fake addon modules and th
 
 It asserts that on Linux the fake addon's `getText` and `hasImage` are replaced while `setText` and `getImageBinary` keep their native functions, that the replacement reader supplies awaited text and reports no image, and that a second installation — standing in for `/reload` against pi's same cached module object — keeps the first wrappers instead of stacking. Off Linux the module must never be resolved, and a missing, malformed, or unresolvable addon fails open. The tool reader returns empty text when no clipboard tool exists on `PATH`, for both the X11 and Wayland tool orders.
 
+## Guard toggle fixtures
+
+Settings fixtures cover the per-guard toggles alongside the rail and mouse ones. They prove `readCommitGuardConfig` and `readClipboardLeakGuardEnabled` resolve to the fork defaults on missing or damaged config (the commit guard enabled with compound commands and file messages allowed, the 72-character limit off), that explicit `proper-base.json` keys override only their own toggle while siblings keep their values, that the settings menu gains the commit-guard and clipboard-guard items with true/false choices, and that a menu change persists under its own key and is visible to both the controller and a fresh disk read.
+
 ## Image context fixture
 
 A focused fixture verifies old image bytes leave outbound model context without changing the stored messages.
@@ -258,7 +262,7 @@ Cases prove a bare `/fast` submission is the only session toggle text; session F
 
 Commit-guard tests exercise the ported validator's command and message rules.
 
-They verify that valid direct commits and non-commit commands pass; that compound, wrapped, env-prefixed, and assignment-prefixed invocations, dynamic tokens, unsupported flags, and missing literal messages are rejected with the hook's wording; that multiple and attached `-m` values extract and join as paragraphs; that message rules cover subject and body length, the blank second line, trailer-block exemption, and forbidden attribution lines; that blocked reasons aggregate every error at once; and that unparseable commands naming git commit block fail-safe.
+They verify that valid direct commits, compound commands carrying a direct `git … commit …` (the default, re-bannable through `allowCompoundCommands`), and non-commit commands pass; that wrapped, env-prefixed, and assignment-prefixed invocations, dynamic tokens, message-mutating flags, and missing literal messages are rejected with the hook's wording; that `-F`/`--file` message files pass by default, skip text validation, and can be re-banned through `allowFileMessage`; that multiple and attached `-m` values extract and join as paragraphs; that message rules cover the blank second line, trailer-block exemption, and forbidden attribution lines, with the 72-character subject and body limits applied only when `enforceLineLength` is set; that a disabled config passes everything; that blocked reasons aggregate every error at once; and that unparseable commands naming git commit block fail-safe.
 
 ## Store fixtures
 

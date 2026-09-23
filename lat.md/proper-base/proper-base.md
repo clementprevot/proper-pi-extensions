@@ -100,6 +100,8 @@ The addon constructs a fresh clipboard-rs `ClipboardContext` on every exported c
 
 macOS and Windows keep the addon untouched: pi implements no subprocess clipboard there, so the addon is load-bearing rather than redundant. The guard is a local containment for the running process; the durable fix belongs upstream in pi's addon or its Linux read paths.
 
+The `Clipboard leak guard` toggle in Pi's `/settings` menu (persisted as `clipboardLeakGuard` in `proper-base.json`, default on) decides whether installation happens at all. The patch is process-wide and idempotent, so the config is read once at extension startup: a change takes effect in sessions started afterwards, not in the running one.
+
 ## Documentation map
 
 Each document owns one runtime concern.
