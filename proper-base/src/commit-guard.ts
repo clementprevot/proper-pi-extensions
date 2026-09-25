@@ -387,6 +387,20 @@ function findCommitArgs(tokens: ShellToken[]): ShellToken[] | null {
 	return null;
 }
 
+/**
+ * Stop at the first shell command boundary: with compound commands
+ * allowed, flags of later commands (e.g. `git status -sb`) must not be
+ * parsed as commit flags.
+ */
+function argsUntilCommandBoundary(args: ShellToken[]): ShellToken[] {
+	const end = args.findIndex(
+		(token) =>
+			CONTROL_OPERATORS.has(token.text) ||
+			COMMAND_START_KEYWORDS.has(token.text),
+	);
+	return end === -1 ? args : args.slice(0, end);
+}
+
 function startsDirectGitCommit(tokens: ShellToken[], start: number): boolean {
 	if (
 		start >= tokens.length ||
@@ -615,8 +629,9 @@ export function extractMessageFromCommand(
 		};
 	}
 
-	const commitArgs = findCommitArgs(tokens.slice(directStart));
-	if (commitArgs === null) return { message: null, errors: [] };
+	const found = findCommitArgs(tokens.slice(directStart));
+	if (found === null) return { message: null, errors: [] };
+	const commitArgs = argsUntilCommandBoundary(found);
 
 	if (commitArgs.some((token) => token.dynamic)) {
 		return {

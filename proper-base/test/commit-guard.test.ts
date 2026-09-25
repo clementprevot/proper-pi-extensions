@@ -87,6 +87,20 @@ test("compound commands pass when allowed through the config", () => {
 	}
 });
 
+test("flags of later compound commands are not parsed as commit flags", () => {
+	const config = strict({ allowCompoundCommands: true });
+	const commands = [
+		'git commit -m "feat: x" && git status -sb',
+		'git add -A && git commit -m "feat: x" && git status -sb',
+		'git commit -m "feat: x" && git push -f origin HEAD',
+		'git commit -m "feat: x" && FOO=$BAR git status',
+		'git commit -m "feat: x" && { git status; }',
+	];
+	for (const command of commands) {
+		assert.equal(commitGuardReason(command, config), undefined, command);
+	}
+});
+
 test("wrapped invocations stay rejected", () => {
 	const commands = [
 		"bash -c 'git commit -m \"feat: x\"'",
