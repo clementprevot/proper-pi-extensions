@@ -37,8 +37,58 @@ const TOGGLES = [
 		description:
 			"proper-base: load multiple skills, manage snapshots and restore full instructions after compaction; applies to the next run",
 	},
+	{
+		id: "proper-base-commit-guard",
+		key: "commitGuard",
+		label: "Commit message guard",
+		description:
+			"proper-base: validate git commit messages before the command runs",
+	},
+	{
+		id: "proper-base-commit-compound",
+		key: "commitGuardCompoundCommands",
+		label: "Commit guard: compound commands",
+		description:
+			"proper-base: allow compound commands such as `cd repo && git commit`",
+	},
+	{
+		id: "proper-base-commit-line-length",
+		key: "commitGuardLineLength",
+		label: "Commit guard: 72-char lines",
+		description:
+			"proper-base: enforce the 72-character commit message line limit",
+	},
+	{
+		id: "proper-base-commit-file-message",
+		key: "commitGuardFileMessage",
+		label: "Commit guard: -F message files",
+		description:
+			"proper-base: allow git commit -F/--file message files (file contents are not validated)",
+	},
+	{
+		id: "proper-base-clipboard-guard",
+		key: "clipboardLeakGuard",
+		label: "Clipboard leak guard",
+		description:
+			"proper-base: route Linux clipboard reads around the leaking addon (takes effect after restart)",
+	},
 ] as const;
 type ToggleKey = (typeof TOGGLES)[number]["key"];
+
+/** Default state per toggle; an absent proper-base.json key reads as this. */
+const TOGGLE_DEFAULTS: Record<ToggleKey, boolean> = {
+	sessionRail: true,
+	editorMouse: true,
+	skillContext: true,
+	commitGuard: true,
+	// Upstream-strict commit guard defaults: compound commands and -F file
+	// messages rejected, the 72-character line limit enforced. The toggles
+	// relax each aspect when set to true (compound, file) or false (length).
+	commitGuardCompoundCommands: false,
+	commitGuardLineLength: true,
+	commitGuardFileMessage: false,
+	clipboardLeakGuard: true,
+};
 
 type SettingItem = {
 	id: string;
@@ -65,6 +115,12 @@ export type SettingsController = {
 	enabled(): boolean;
 	/** Whether prompt clicks may move the editor cursor. Cached per session. */
 	editorMouse(): boolean;
+	/** Whether the commit message guard blocks bash tool calls. Live-read. */
+	commitGuard(): boolean;
+	/** The commit guard sub-toggles, as persisted in proper-base.json. */
+	commitGuardOptions(): CommitGuardSettings;
+	/** Whether the Linux clipboard leak guard patch is installed. */
+	clipboardLeakGuard(): boolean;
 	dispose(): void;
 };
 
@@ -77,13 +133,14 @@ function readToggle(agentDir: string, key: ToggleKey): boolean {
 		const parsed = JSON.parse(
 			readFileSync(configPath(agentDir), "utf8"),
 		) as unknown;
-		return (parsed as Record<string, unknown> | null)?.[key] !== false;
+		const value = (parsed as Record<string, unknown> | null)?.[key];
+		return value === undefined ? TOGGLE_DEFAULTS[key] : value !== false;
 	} catch (error) {
 		if (
 			error instanceof SyntaxError ||
 			typeof (error as NodeJS.ErrnoException).code === "string"
 		)
-			return true;
+			return TOGGLE_DEFAULTS[key];
 		throw error;
 	}
 }
@@ -121,6 +178,26 @@ export function writeSkillContextEnabled(
 	enabled: boolean,
 ): void {
 	writeToggle(agentDir, "skillContext", enabled);
+}
+
+export type CommitGuardSettings = {
+	enabled: boolean;
+	allowCompoundCommands: boolean;
+	allowFileMessage: boolean;
+	enforceLineLength: boolean;
+};
+
+export function readCommitGuardConfig(agentDir: string): CommitGuardSettings {
+	return {
+		enabled: readToggle(agentDir, "commitGuard"),
+		allowCompoundCommands: readToggle(agentDir, "commitGuardCompoundCommands"),
+		allowFileMessage: readToggle(agentDir, "commitGuardFileMessage"),
+		enforceLineLength: readToggle(agentDir, "commitGuardLineLength"),
+	};
+}
+
+export function readClipboardLeakGuardEnabled(agentDir: string): boolean {
+	return readToggle(agentDir, "clipboardLeakGuard");
 }
 
 /** Fresh-disk merge and atomic replacement; failed saves keep the live value. */
@@ -212,11 +289,11 @@ export function installSettings(
 	agentDir: string,
 	onError?: (error: Error) => void,
 ): SettingsController {
-	const state: Record<ToggleKey, boolean> = {
-		sessionRail: readToggle(agentDir, "sessionRail"),
-		editorMouse: readToggle(agentDir, "editorMouse"),
-		skillContext: readSkillContextEnabled(agentDir),
-	};
+	const state: Record<ToggleKey, boolean> = { ...TOGGLE_DEFAULTS };
+	for (const key of Object.keys(TOGGLE_DEFAULTS) as ToggleKey[]) {
+		state[key] = readToggle(agentDir, key);
+	}
+	state.skillContext = readSkillContextEnabled(agentDir);
 	let disposed = false;
 	let uninstall: (() => void) | undefined;
 
@@ -294,6 +371,14 @@ export function installSettings(
 	return {
 		enabled: () => state.sessionRail,
 		editorMouse: () => state.editorMouse,
+		commitGuard: () => state.commitGuard,
+		commitGuardOptions: () => ({
+			enabled: state.commitGuard,
+			allowCompoundCommands: state.commitGuardCompoundCommands,
+			allowFileMessage: state.commitGuardFileMessage,
+			enforceLineLength: state.commitGuardLineLength,
+		}),
+		clipboardLeakGuard: () => state.clipboardLeakGuard,
 		dispose() {
 			disposed = true;
 			uninstall?.();

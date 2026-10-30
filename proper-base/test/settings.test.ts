@@ -6,6 +6,8 @@ import { test } from "node:test";
 
 import {
 	installSettings,
+	readClipboardLeakGuardEnabled,
+	readCommitGuardConfig,
 	readEditorMouseEnabled,
 	readRailEnabled,
 	readSkillContextEnabled,
@@ -211,4 +213,68 @@ test("a missing or damaged config enables both and installs nothing twice", asyn
 	);
 	first.dispose();
 	second.dispose();
+});
+
+// @lat: [[lat.md/proper-base/tests#Verification#Guard toggle fixtures]]
+test("guard toggles default to the package defaults and persist", () => {
+	const dir = mkdtempSync(join(tmpdir(), "proper-base-guards-"));
+
+	assert.deepEqual(readCommitGuardConfig(dir), {
+		enabled: true,
+		allowCompoundCommands: false,
+		allowFileMessage: false,
+		enforceLineLength: true,
+	});
+	assert.equal(readClipboardLeakGuardEnabled(dir), true);
+
+	writeFileSync(
+		join(dir, "proper-base.json"),
+		'{\n\t"commitGuard": false,\n\t"commitGuardCompoundCommands": true\n}\n',
+	);
+	const config = readCommitGuardConfig(dir);
+	assert.equal(config.enabled, false);
+	assert.equal(config.allowCompoundCommands, true);
+	assert.equal(config.enforceLineLength, true);
+	assert.equal(readClipboardLeakGuardEnabled(dir), true);
+
+	writeFileSync(join(dir, "proper-base.json"), "not json");
+	assert.equal(readCommitGuardConfig(dir).enabled, true);
+	assert.equal(readCommitGuardConfig(dir).enforceLineLength, true);
+	assert.equal(readClipboardLeakGuardEnabled(dir), true);
+});
+
+test("the settings menu gains the guard toggles", async () => {
+	const { dir, editor, container, tui } = harness();
+	const controller = installSettings(tui as never, editor as never, dir);
+	await tick();
+	const selector = new SettingsSelectorComponent();
+	container.addChild(selector);
+	for (const id of [
+		"proper-base-commit-guard",
+		"proper-base-commit-compound",
+		"proper-base-commit-line-length",
+		"proper-base-commit-file-message",
+		"proper-base-clipboard-guard",
+	]) {
+		const item = selector.settingsList.items.find((i) => i.id === id);
+		assert.ok(item, id);
+		assert.deepEqual(item.values, ["true", "false"]);
+	}
+	// Upstream-strict defaults: the line limit is on, compound and -F are off.
+	assert.equal(
+		selector.settingsList.items.find(
+			(i) => i.id === "proper-base-commit-line-length",
+		)?.currentValue,
+		"true",
+	);
+	assert.equal(
+		selector.settingsList.items.find(
+			(i) => i.id === "proper-base-commit-compound",
+		)?.currentValue,
+		"false",
+	);
+	selector.settingsList.onChange("proper-base-commit-guard", "false");
+	assert.equal(controller.commitGuard(), false);
+	assert.equal(readCommitGuardConfig(dir).enabled, false);
+	controller.dispose();
 });
