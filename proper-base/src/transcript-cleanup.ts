@@ -23,7 +23,14 @@ type AssistantMessage = {
 type AssistantComponent = Component & {
 	lastMessage?: AssistantMessage;
 	updateContent?(message: AssistantMessage, isStreaming?: boolean): void;
+	contentContainer?: ComponentContainer;
 };
+type MouseEntry = { component: Component; height: number };
+type MouseLayoutHost = {
+	mouseLayout?: { width: number; children: MouseEntry[] };
+};
+/** Parts of an assistant message mapped to the children Pi built for them. */
+type ContentChildren = { lead?: Component; parts: Map<number, Component> };
 type InstalledContainer = ComponentContainer & {
 	[INSTALLED]?: TranscriptCleanupController;
 };
@@ -51,6 +58,28 @@ type AssistantRenderCache = {
 	lines: Map<string, string[]>;
 };
 type DetailKind = "tool" | "error";
+
+const OSC133_ZONE_START = "\x1b]133;A\x07";
+const OSC133_ZONE_END = "\x1b]133;B\x07\x1b]133;C\x07";
+/** Stands for rows proper-base draws itself, which take no mouse events. */
+const INERT: Component = { render: () => [], invalidate() {} };
+
+/** Rendered rows, plus the component behind each run of rows for mouse routing. */
+class Rendered {
+	readonly lines: string[] = [];
+	readonly layout: MouseEntry[] = [];
+
+	add(lines: string[], component: Component = INERT): void {
+		if (!lines.length) return;
+		this.lines.push(...lines);
+		this.layout.push({ component, height: lines.length });
+	}
+
+	append(other: Rendered): void {
+		this.lines.push(...other.lines);
+		this.layout.push(...other.layout);
+	}
+}
 /**
  * One transcript action, in scroll-content coordinates.
  *
@@ -199,6 +228,7 @@ export function installTranscriptCleanup(
 			unsubscribe();
 			chat.render = render;
 			chat.invalidate = invalidate;
+			delete (chat as MouseLayoutHost).mouseLayout;
 			delete chat[INSTALLED];
 		},
 	};
@@ -215,28 +245,34 @@ export function installTranscriptCleanup(
 		}
 		state.pendingHits.length = 0;
 		const sink: OutlineEntry[] = [];
-		let lines: string[];
+		let rendered: Rendered;
 		if (state.activeStart === undefined && state.ctx.isIdle()) {
-			lines = renderCollapsed(chat.children, width, state, sink);
+			rendered = renderCollapsed(chat.children, width, state, sink);
 		} else {
 			const start = state.activeStart ?? chat.children.length;
-			const collapsed = renderCollapsed(
+			rendered = renderCollapsed(
 				chat.children.slice(0, start),
 				width,
 				state,
 				sink,
 			);
-			lines = [
-				...collapsed,
-				...renderActive(
+			rendered.append(
+				renderActive(
 					chat.children.slice(start),
 					width,
 					state,
 					sink,
-					collapsed.length,
+					rendered.lines.length,
 				),
-			];
+			);
 		}
+		// Container.handleMouse routes clicks through the layout its own render
+		// records, which this replacement render skips; record the drawn one.
+		(chat as MouseLayoutHost).mouseLayout = {
+			width,
+			children: rendered.layout,
+		};
+		const lines = rendered.lines;
 		const offset = documentRowOffset(document, chat, width);
 		state.outline = sink
 			.map((entry) => ({ ...entry, row: offset + entry.row }))
@@ -254,8 +290,8 @@ function renderActive(
 	state: State,
 	sink: OutlineEntry[],
 	base: number,
-): string[] {
-	const output: string[][] = Array.from({ length: children.length });
+): Rendered {
+	const output: Rendered[] = Array.from({ length: children.length });
 	const hits: DetailHit[][] = Array.from({ length: children.length });
 	let hasTextBelow = false;
 	for (let index = children.length - 1; index >= 0; index--) {
@@ -265,27 +301,30 @@ function renderActive(
 		const native = isUserBoundary(child)
 			? renderExpandable(child, width, state)
 			: child.render(width);
-		output[index] =
-			state.completed.has(child) && hasTextBelow
-				? renderGroup([child], width, state, [], 0)
-				: native;
+		if (state.completed.has(child) && hasTextBelow) {
+			output[index] = renderGroup([child], width, state, [], 0);
+		} else {
+			const rendered = new Rendered();
+			rendered.add(native, child);
+			output[index] = rendered;
+		}
 		hits[index] = state.pendingHits.splice(hitStart);
 		if (hasSectionText(native)) hasTextBelow = true;
 	}
 	// Outline rows are recorded on a forward pass because the render loop above
 	// walks backwards; the discarded renderGroup sink avoids double records.
-	let row = base;
+	const rendered = new Rendered();
 	for (let index = 0; index < children.length; index++) {
-		const rendered = output[index];
+		const part = output[index];
 		state.pendingHits.push(...(hits[index] ?? []));
 		const child = children[index];
-		if (child && rendered?.length) {
+		if (child && part?.lines.length) {
 			const entry = actionEntry(child);
-			if (entry) sink.push({ ...entry, row });
+			if (entry) sink.push({ ...entry, row: base + rendered.lines.length });
 		}
-		row += rendered?.length ?? 0;
+		if (part) rendered.append(part);
 	}
-	return output.flat();
+	return rendered;
 }
 
 function actionEntry(child: Component): Omit<OutlineEntry, "row"> | undefined {
@@ -311,12 +350,14 @@ function renderCollapsed(
 	width: number,
 	state: State,
 	sink: OutlineEntry[],
-): string[] {
-	const lines: string[] = [];
+): Rendered {
+	const rendered = new Rendered();
 	let group: Component[] = [];
 	const flush = () => {
 		if (!group.length) return;
-		lines.push(...renderGroup(group, width, state, sink, lines.length));
+		rendered.append(
+			renderGroup(group, width, state, sink, rendered.lines.length),
+		);
 		group = [];
 	};
 
@@ -328,7 +369,7 @@ function renderCollapsed(
 			isUserBoundary(children[index + 1])
 		) {
 			flush();
-			lines.push(...child.render(width));
+			rendered.add(child.render(width), child);
 			continue;
 		}
 		if (isUserBoundary(child)) {
@@ -340,11 +381,11 @@ function renderCollapsed(
 		) {
 			group.push(child);
 		} else {
-			lines.push(...renderExpandable(child, width, state));
+			rendered.add(renderExpandable(child, width, state), child);
 		}
 	}
 	flush();
-	return lines;
+	return rendered;
 }
 
 function renderGroup(
@@ -353,31 +394,31 @@ function renderGroup(
 	state: State,
 	sink: OutlineEntry[],
 	base: number,
-): string[] {
-	const lines: string[] = [];
+): Rendered {
+	const rendered = new Rendered();
 
 	for (const child of group) {
 		const name = componentName(child);
 		if (isUserBoundary(child)) {
 			sink.push({
 				kind: "user",
-				row: base + lines.length,
+				row: base + rendered.lines.length,
 				label: "prompt",
 			});
-			lines.push(...renderExpandable(child, width, state));
+			rendered.add(renderExpandable(child, width, state), child);
 			continue;
 		}
 		if (name === "Spacer") {
-			if (!state.owned.has(child)) lines.push(...child.render(width));
+			if (!state.owned.has(child)) rendered.add(child.render(width), child);
 			continue;
 		}
 		if (name === "AssistantMessageComponent") {
-			const startRow = lines.length;
+			const startRow = rendered.lines.length;
 			const assistant = child as AssistantComponent;
 			const message = assistant.lastMessage;
 			if (!message || !assistant.updateContent) {
-				lines.push(...child.render(width));
-				if (lines.length > startRow) {
+				rendered.add(child.render(width), child);
+				if (rendered.lines.length > startRow) {
 					sink.push({
 						kind: "assistant",
 						row: base + startRow,
@@ -389,18 +430,34 @@ function renderGroup(
 			const hasToolCall = message.content.some(
 				(part) => part.type === "toolCall",
 			);
+			const shown = new Set<Component>();
 			message.content.forEach((part) => {
 				if (part.type === "thinking" && part.thinking?.trim()) {
-					lines.push(
-						...renderAssistantContent(assistant, message, [part], width, state),
+					rendered.append(
+						renderAssistantContent(
+							assistant,
+							message,
+							[part],
+							width,
+							state,
+							shown,
+						),
 					);
 				}
 				if (hasToolCall && part.type === "text" && part.text?.trim()) {
-					lines.push(
-						...withVerticalSpacing(
-							renderAssistantContent(assistant, message, [part], width, state),
-						),
+					const text = renderAssistantContent(
+						assistant,
+						message,
+						[part],
+						width,
+						state,
+						shown,
 					);
+					if (text.lines.length) {
+						rendered.add([""]);
+						rendered.append(text);
+						rendered.add([""]);
+					}
 				}
 			});
 			if (["aborted", "error", "length"].includes(message.stopReason ?? "")) {
@@ -409,8 +466,8 @@ function renderGroup(
 					(message.stopReason === "length"
 						? "Response was truncated before completion."
 						: "Operation aborted");
-				lines.push(
-					...renderDetail(
+				rendered.append(
+					renderDetail(
 						{
 							owner: child,
 							kind: "error",
@@ -427,14 +484,21 @@ function renderGroup(
 					(part) => part.type === "text" && part.text?.trim(),
 				);
 				if (direct.length) {
-					lines.push(
-						...renderAssistantContent(assistant, message, direct, width, state),
+					rendered.append(
+						renderAssistantContent(
+							assistant,
+							message,
+							direct,
+							width,
+							state,
+							shown,
+						),
 					);
 				}
 			}
 			// A turn whose reply was only tool calls emits nothing of its own; its
 			// visible actions are the tool rows, so no assistant entry is recorded.
-			if (lines.length > startRow) {
+			if (rendered.lines.length > startRow) {
 				sink.push({
 					kind: "assistant",
 					row: base + startRow,
@@ -448,11 +512,11 @@ function renderGroup(
 			const error = tool.result?.isError === true;
 			sink.push({
 				kind: error ? "error" : "tool",
-				row: base + lines.length,
+				row: base + rendered.lines.length,
 				label: tool.toolName ?? "tool",
 			});
-			lines.push(
-				...renderDetail(
+			rendered.append(
+				renderDetail(
 					{
 						owner: child,
 						kind: error ? "error" : "tool",
@@ -465,13 +529,16 @@ function renderGroup(
 			);
 			continue;
 		}
-		if (!state.owned.has(child)) {
-			lines.push(...renderExpandable(child, width, state));
+		const lines = renderExpandable(child, width, state);
+		if (!state.owned.has(child) || !lines.length) {
+			rendered.add(lines, child);
 			continue;
 		}
-		lines.push(...withVerticalSpacing(renderExpandable(child, width, state)));
+		rendered.add([""]);
+		rendered.add(lines, child);
+		rendered.add([""]);
 	}
-	return lines;
+	return rendered;
 }
 
 /**
@@ -500,7 +567,114 @@ function renderExpandable(
 	return lines;
 }
 
+/**
+ * Draws a subset of an assistant message from the children Pi already built
+ * for it, so those children stay the ones clicks reach. Children in `shown`
+ * are skipped: a thinking run serves several parts.
+ */
 function renderAssistantContent(
+	assistant: AssistantComponent,
+	message: AssistantMessage,
+	content: AssistantMessage["content"],
+	width: number,
+	state: State,
+	shown: Set<Component>,
+): Rendered {
+	const rendered = new Rendered();
+	const mapped = contentChildren(assistant, message);
+	if (!mapped) {
+		rendered.add(
+			swappedContentLines(assistant, message, content, width, state),
+		);
+		return rendered;
+	}
+	const children = [
+		...new Set(
+			content.map((part) => mapped.parts.get(message.content.indexOf(part))),
+		),
+	].filter((child): child is Component => !!child && !shown.has(child));
+	if (!children.length) return rendered;
+	// Copies: Markdown returns its cached arrays, and the zone markers below
+	// must not leak into them.
+	const runs = [
+		{ lines: [...(mapped.lead?.render(width) ?? [])], component: mapped.lead },
+		...children.map((child) => {
+			shown.add(child);
+			return { lines: [...child.render(width)], component: child };
+		}),
+	].filter((run) => run.lines.length);
+	const first = runs[0];
+	const last = runs.at(-1);
+	if (first && last) {
+		first.lines[0] = OSC133_ZONE_START + first.lines[0];
+		const end = last.lines.length - 1;
+		last.lines[end] = OSC133_ZONE_END + last.lines[end];
+	}
+	for (const run of runs) rendered.add(run.lines, run.component);
+	return rendered;
+}
+
+/**
+ * Maps message parts to the children Pi's AssistantMessageComponent built in
+ * updateContent: a leading Spacer, one Markdown per text part, one MouseRegion
+ * per thinking run followed by a Spacer when visible content comes after.
+ * Undefined when the children do not follow that layout.
+ */
+function contentChildren(
+	assistant: AssistantComponent,
+	message: AssistantMessage,
+): ContentChildren | undefined {
+	const children = assistant.contentContainer?.children;
+	if (!children || assistant.lastMessage !== message) return undefined;
+	const parts = message.content;
+	const visible = (part: AssistantMessage["content"][number] | undefined) =>
+		(part?.type === "text" && !!part.text?.trim()) ||
+		(part?.type === "thinking" && !!part.thinking?.trim());
+	let next = 0;
+	const take = (name: string): Component | undefined => {
+		const child = children[next];
+		if (!child || componentName(child) !== name) return undefined;
+		next++;
+		return child;
+	};
+	const mapped: ContentChildren = { parts: new Map() };
+	if (parts.some(visible)) {
+		const lead = take("Spacer");
+		if (!lead) return undefined;
+		mapped.lead = lead;
+	}
+	for (let index = 0; index < parts.length; index++) {
+		const part = parts[index];
+		if (part?.type === "text" && visible(part)) {
+			const child = take("Markdown");
+			if (!child) return undefined;
+			mapped.parts.set(index, child);
+		} else if (part?.type === "thinking") {
+			let end = index;
+			while (parts[end + 1]?.type === "thinking") end++;
+			const run = parts.slice(index, end + 1);
+			if (run.some(visible)) {
+				const child = take("MouseRegion");
+				if (!child) return undefined;
+				run.forEach((item, offset) => {
+					if (visible(item)) mapped.parts.set(index + offset, child);
+				});
+				if (parts.slice(end + 1).some(visible) && !take("Spacer")) {
+					return undefined;
+				}
+			}
+			index = end;
+		}
+	}
+	return mapped;
+}
+
+/**
+ * Fallback for assistant components whose children do not follow Pi's
+ * layout: render the subset through an updateContent swap. Clicks on these
+ * rows reach nothing, since the swapped children are discarded.
+ */
+function swappedContentLines(
 	assistant: AssistantComponent,
 	message: AssistantMessage,
 	content: AssistantMessage["content"],
@@ -530,10 +704,6 @@ function renderAssistantContent(
 	}
 }
 
-function withVerticalSpacing(lines: string[]): string[] {
-	return lines.length ? ["", ...lines, ""] : [];
-}
-
 function hasSectionText(lines: string[]): boolean {
 	return lines.some((line) => {
 		const text = stripTerminalSequences(line).trim();
@@ -545,7 +715,7 @@ function hasSectionText(lines: string[]): boolean {
 	});
 }
 
-function renderDetail(detail: Detail, width: number, state: State): string[] {
+function renderDetail(detail: Detail, width: number, state: State): Rendered {
 	const expanded = state.expanded.get(detail.owner) ?? state.globalExpanded;
 	const marker = state.ctx.ui.theme.fg(
 		"borderAccent",
@@ -559,13 +729,14 @@ function renderDetail(detail: Detail, width: number, state: State): string[] {
 		line: headerLine,
 		end: visibleWidth(header),
 	});
-	const lines = [headerLine];
+	const result = new Rendered();
+	result.add([headerLine]);
 	const expandable = detail.component as ToolComponent;
 	// setExpanded rebuilds the tool's result renderer even when the state is
 	// unchanged, which re-sanitizes full outputs on every frame. Skip no-ops.
 	if (expandable.expanded !== expanded) expandable.setExpanded?.(expanded);
 	if (expanded) {
-		lines.push(...detail.component.render(width));
+		result.add(detail.component.render(width), detail.component);
 		const button = `\x1b[7m ${state.ctx.ui.theme.fg(detailColor(detail.kind), "collapse")} \x1b[27m`;
 		const rendered = truncateToWidth(button, width, "");
 		const buttonLine = `${rendered}${" ".repeat(Math.max(0, width - visibleWidth(rendered)))}`;
@@ -574,9 +745,9 @@ function renderDetail(detail: Detail, width: number, state: State): string[] {
 			line: buttonLine,
 			end: visibleWidth(rendered),
 		});
-		lines.push(buttonLine);
+		result.add([buttonLine]);
 	}
-	return lines;
+	return result;
 }
 
 function detailColor(

@@ -3,12 +3,16 @@ import { test } from "node:test";
 
 import {
 	initTheme,
+	AssistantMessageComponent as PiAssistantMessageComponent,
 	SkillInvocationMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import {
+	type Component,
 	Container,
+	Markdown,
 	Spacer,
 	stripTerminalSequences,
+	type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
 import { installTranscriptCleanup } from "../src/transcript-cleanup.ts";
 import properBase from "./base-only-fixture.ts";
@@ -735,4 +739,173 @@ test("the settled outline records one row per action in order", () => {
 	assert.ok(stripTerminalSequences(rendered[2] ?? "").includes("tool · read"));
 
 	controller.uninstall();
+});
+
+function settledHarness() {
+	initTheme("dark", false);
+	const chat = new Container();
+	const document = new Container();
+	document.addChild(new Container());
+	document.addChild(new Container());
+	document.addChild(chat);
+	const tui = {
+		children: [document],
+		inputListeners: new Set(),
+		previousScreen: [] as string[],
+		requestRender() {},
+		addInputListener: () => () => {},
+	};
+	const ctx = {
+		isIdle: () => true,
+		ui: {
+			getToolsExpanded: () => false,
+			theme: {
+				fg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+				italic: (text: string) => text,
+			},
+		},
+	};
+	const controller = installTranscriptCleanup(tui as never, ctx as never);
+	assert.ok(controller);
+	return { chat, controller };
+}
+
+function leftClick(row: number, width: number, height: number): TuiMouseEvent {
+	return {
+		type: "click",
+		button: "left",
+		x: 3,
+		y: row,
+		screenX: 3,
+		screenY: row,
+		width,
+		height,
+		shift: false,
+		alt: false,
+		ctrl: false,
+	} as TuiMouseEvent;
+}
+
+function markdownChildren(component: PiAssistantMessageComponent): Markdown[] {
+	const content = (component as unknown as { contentContainer: Container })
+		.contentContainer;
+	return content.children.filter(
+		(child: Component): child is Markdown => child instanceof Markdown,
+	);
+}
+
+// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Transcript mouse routing]]
+test("clicks on a cleaned reply reach the drawn row of its persistent Markdown", () => {
+	const { chat, controller } = settledHarness();
+	chat.addChild(new UserMessageComponent("fix it"));
+	chat.addChild(
+		new PiAssistantMessageComponent({
+			content: [
+				{ type: "text", text: "Reading the file first." },
+				{ type: "toolCall", id: "tool-1", name: "read", arguments: {} },
+			],
+			stopReason: "toolUse",
+		} as never),
+	);
+	chat.addChild(new ToolExecutionComponent("tool-1"));
+	const reply = new PiAssistantMessageComponent({
+		content: [
+			{ type: "thinking", thinking: "Checking the output." },
+			{ type: "text", text: "First line.\n\nCLICK_TARGET line." },
+		],
+		stopReason: "stop",
+	} as never);
+	chat.addChild(reply);
+	controller.settle();
+
+	const width = 80;
+	const rendered = chat.render(width);
+	const row = rendered.findIndex((line) =>
+		stripTerminalSequences(line).includes("CLICK_TARGET"),
+	);
+	assert.ok(row >= 0);
+	const [markdown] = markdownChildren(reply);
+	assert.ok(markdown);
+	const localRow = markdown
+		.render(width)
+		.findIndex((line) => stripTerminalSequences(line).includes("CLICK_TARGET"));
+	let received: TuiMouseEvent | undefined;
+	(
+		markdown as Markdown & {
+			handleMouse?: (event: TuiMouseEvent) => { handled: boolean };
+		}
+	).handleMouse = (event) => {
+		received = event;
+		return { handled: true };
+	};
+
+	const result = chat.handleMouse(leftClick(row, width, rendered.length));
+
+	assert.ok(result);
+	assert.equal(received?.y, localRow);
+	controller.uninstall();
+});
+
+test("clicking a thinking block in a cleaned reply toggles it through Pi's own region", () => {
+	const { chat, controller } = settledHarness();
+	chat.addChild(new UserMessageComponent("explain"));
+	chat.addChild(
+		new PiAssistantMessageComponent({
+			content: [
+				{ type: "thinking", thinking: "THOUGHT_TEXT" },
+				{ type: "text", text: "Answer." },
+			],
+			stopReason: "stop",
+		} as never),
+	);
+	controller.settle();
+
+	const width = 80;
+	const before = chat.render(width);
+	const row = before.findIndex((line) =>
+		stripTerminalSequences(line).includes("THOUGHT_TEXT"),
+	);
+	assert.ok(row >= 0);
+
+	chat.handleMouse(leftClick(row, width, before.length));
+
+	const after = chat.render(width).map(stripTerminalSequences).join("\n");
+	assert.doesNotMatch(after, /THOUGHT_TEXT/);
+	assert.match(after, /Answer\./);
+	controller.uninstall();
+});
+
+test("the recorded mouse layout covers every rendered row", () => {
+	const { chat, controller } = settledHarness();
+	chat.addChild(new UserMessageComponent("fix it"));
+	chat.addChild(
+		new PiAssistantMessageComponent({
+			content: [
+				{ type: "text", text: "Reading." },
+				{ type: "toolCall", id: "tool-1", name: "read", arguments: {} },
+			],
+			stopReason: "toolUse",
+		} as never),
+	);
+	chat.addChild(new ToolExecutionComponent("tool-1"));
+	chat.addChild(new StatusComponent());
+	controller.settle();
+
+	const rendered = chat.render(80);
+	const layout = (
+		chat as unknown as {
+			mouseLayout: { width: number; children: Array<{ height: number }> };
+		}
+	).mouseLayout;
+	assert.equal(layout.width, 80);
+	assert.equal(
+		layout.children.reduce((rows, entry) => rows + entry.height, 0),
+		rendered.length,
+	);
+	controller.uninstall();
+	assert.equal(
+		(chat as unknown as { mouseLayout?: unknown }).mouseLayout,
+		undefined,
+	);
 });
