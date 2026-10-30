@@ -2,10 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+	COMMIT_GUARD_DEFAULTS,
+	type CommitGuardConfig,
 	commitGuardReason,
 	extractMessageFromCommand,
 	validateMessageText,
 } from "../src/commit-guard.ts";
+
+const strict = (overrides: Partial<CommitGuardConfig>): CommitGuardConfig => ({
+	...COMMIT_GUARD_DEFAULTS,
+	...overrides,
+});
 
 // @lat: [[lat.md/proper-base/tests#Verification#Commit guard fixtures]]
 test("valid direct commits pass", () => {
@@ -48,12 +55,54 @@ test("unparseable commands mentioning git commit block fail-safe", () => {
 	assert.match(reason, /Unable to parse git commit command/);
 });
 
-test("compound and wrapped invocations are rejected", () => {
+test("compound commands are rejected by default", () => {
 	const commands = [
 		'git add -A && git commit -m "feat: x"',
+		'cd /repo && git commit -m "feat: x"',
 		'git commit -m "feat: x" && git status',
 		'git commit -m "feat: x" | tail',
 		'git commit -m "feat: x"; git log',
+	];
+	for (const command of commands) {
+		const reason = commitGuardReason(command);
+		assert.ok(reason, command);
+		assert.match(reason, /without compound shell/, command);
+	}
+});
+
+test("compound commands pass when allowed through the config", () => {
+	const commands = [
+		'git add -A && git commit -m "feat: x"',
+		'cd /repo && git commit -m "feat: x"',
+		'git commit -m "feat: x" && git status',
+		'git commit -m "feat: x" | tail',
+		'git commit -m "feat: x"; git log',
+	];
+	for (const command of commands) {
+		const reason = commitGuardReason(
+			command,
+			strict({ allowCompoundCommands: true }),
+		);
+		assert.equal(reason, undefined, command);
+	}
+});
+
+test("flags of later compound commands are not parsed as commit flags", () => {
+	const config = strict({ allowCompoundCommands: true });
+	const commands = [
+		'git commit -m "feat: x" && git status -sb',
+		'git add -A && git commit -m "feat: x" && git status -sb',
+		'git commit -m "feat: x" && git push -f origin HEAD',
+		'git commit -m "feat: x" && FOO=$BAR git status',
+		'git commit -m "feat: x" && { git status; }',
+	];
+	for (const command of commands) {
+		assert.equal(commitGuardReason(command, config), undefined, command);
+	}
+});
+
+test("wrapped invocations stay rejected", () => {
+	const commands = [
 		"bash -c 'git commit -m \"feat: x\"'",
 		'sudo git commit -m "feat: x"',
 		'env GIT_AUTHOR_NAME=x git commit -m "feat: x"',
@@ -64,6 +113,14 @@ test("compound and wrapped invocations are rejected", () => {
 		assert.ok(reason, command);
 		assert.match(reason, /direct `git \.\.\. commit \.\.\.` invocation/);
 	}
+});
+
+test("the guard can be disabled outright", () => {
+	const reason = commitGuardReason(
+		'git commit -m "feat: x" -m "Co-Authored-By: Claude <c@anthropic.com>"',
+		strict({ enabled: false }),
+	);
+	assert.equal(reason, undefined);
 });
 
 test("dynamic tokens in commit arguments are rejected", () => {
@@ -79,10 +136,8 @@ test("dynamic tokens in commit arguments are rejected", () => {
 	}
 });
 
-test("unsupported flags are rejected with hook wording", () => {
+test("message-mutating flags stay rejected with hook wording", () => {
 	const cases: [string, RegExp][] = [
-		["git commit -F /tmp/msg", /instead of -F\/--file/],
-		['git commit --file=/tmp/msg -m "feat: x"', /instead of -F\/--file/],
 		['git commit -e -m "feat: x"', /Do not open the editor/],
 		['git commit -s -m "feat: x"', /--signoff/],
 		['git commit --no-verify -m "feat: x"', /bypasses commit hooks/],
@@ -93,6 +148,34 @@ test("unsupported flags are rejected with hook wording", () => {
 		const reason = commitGuardReason(command);
 		assert.ok(reason, command);
 		assert.match(reason, pattern, command);
+	}
+});
+
+test("file message sources pass when allowed and skip text validation", () => {
+	const commands = [
+		"git commit -F /tmp/msg",
+		'git commit --file=/tmp/msg -m "feat: x"',
+		"git commit -F/tmp/msg",
+	];
+	for (const command of commands) {
+		const config = strict({ allowFileMessage: true });
+		assert.equal(commitGuardReason(command, config), undefined, command);
+		const { message, errors } = extractMessageFromCommand(command, config);
+		if (command.includes("-m")) {
+			assert.equal(message, "feat: x", command);
+		} else {
+			assert.equal(message, null, command);
+		}
+		assert.deepEqual(errors, [], command);
+	}
+});
+
+test("file message sources are rejected by default", () => {
+	const commands = ["git commit -F /tmp/msg", "git commit --file=/tmp/msg"];
+	for (const command of commands) {
+		const reason = commitGuardReason(command);
+		assert.ok(reason, command);
+		assert.match(reason, /file cannot be validated/, command);
 	}
 });
 
@@ -135,26 +218,37 @@ test("message text rules match the hook", () => {
 	assert.deepEqual(validateMessageText(""), [
 		"line 1: subject line is missing or empty",
 	]);
-	assert.deepEqual(validateMessageText(`feat: ${"x".repeat(70)}`), [
-		"line 1: line exceeds 72 characters",
-	]);
-	assert.deepEqual(validateMessageText("feat: subject\nbody without blank"), [
+	assert.deepEqual(
+		validateMessageText("feat: subject\nbody without blank", true),
+		["line 2: body must start with a blank line after the subject"],
+	);
+	assert.deepEqual(validateMessageText(`feat: subject\nbody without blank`), [
 		"line 2: body must start with a blank line after the subject",
 	]);
-	assert.deepEqual(validateMessageText(`feat: subject\n\n${"y".repeat(73)}`), [
+});
+
+test("the line length limit is enforced by default", () => {
+	const longSubject = `feat: ${"x".repeat(70)}`;
+	const longBody = `feat: subject\n\n${"y".repeat(73)}`;
+	assert.deepEqual(validateMessageText(longSubject), [
+		"line 1: line exceeds 72 characters",
+	]);
+	assert.deepEqual(validateMessageText(longBody), [
 		"line 3: line exceeds 72 characters",
 	]);
+	assert.deepEqual(validateMessageText(longSubject, false), []);
+	assert.deepEqual(validateMessageText(longBody, false), []);
 });
 
 test("final trailer block is exempt from line length", () => {
 	const longTrailer = `Reviewed-by: ${"z".repeat(80)}`;
 	assert.deepEqual(
-		validateMessageText(`feat: subject\n\nBody text.\n\n${longTrailer}`),
+		validateMessageText(`feat: subject\n\nBody text.\n\n${longTrailer}`, true),
 		[],
 	);
 	// The same long line inside the body still fails.
 	assert.deepEqual(
-		validateMessageText(`feat: subject\n\n${longTrailer}\n\nBody text.`),
+		validateMessageText(`feat: subject\n\n${longTrailer}\n\nBody text.`, true),
 		["line 3: line exceeds 72 characters"],
 	);
 });

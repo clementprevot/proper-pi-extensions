@@ -86,7 +86,12 @@ import { appendPromptSection } from "./src/prompt-sections.ts";
 import { installRecorder } from "./src/recorder.ts";
 import { installSelectionDismiss } from "./src/selection-dismiss.ts";
 import { installFastSessionList } from "./src/session-list.ts";
-import { installSettings, type SettingsController } from "./src/settings.ts";
+import {
+	installSettings,
+	readClipboardLeakGuardEnabled,
+	readCommitGuardConfig,
+	type SettingsController,
+} from "./src/settings.ts";
 import { registerSkillContext } from "./src/skills.ts";
 import { installSmartSelection } from "./src/smart-selection.ts";
 import { stickyDefaultsEnabled } from "./src/startup-defaults.ts";
@@ -224,7 +229,9 @@ function decodeClearSettings(value: string): ClearSettings | undefined {
 
 export default function (pi: ExtensionAPI) {
 	// @lat: [[lat.md/proper-base/proper-base#proper-base#Clipboard leak guard]]
-	installClipboardLeakGuard();
+	if (readClipboardLeakGuardEnabled(getAgentDir())) {
+		installClipboardLeakGuard();
+	}
 	enableScribeCapabilities();
 	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Session listing]]
 	const removeFastSessionList = installFastSessionList(
@@ -676,7 +683,10 @@ export default function (pi: ExtensionAPI) {
 		if (event.toolName !== "bash" && event.toolName !== "quill_execute") return;
 		const command = (event.input as { command?: unknown } | undefined)?.command;
 		if (typeof command !== "string") return;
-		const reason = commitGuardReason(command);
+		const reason = commitGuardReason(
+			command,
+			readCommitGuardConfig(getAgentDir()),
+		);
 		if (reason) return { block: true, reason };
 	});
 
