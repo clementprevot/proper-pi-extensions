@@ -94,8 +94,17 @@ function markdownRows(component: MarkdownHost, width: number) {
 		component,
 	) as MarkdownHost;
 	delete clone.cachedLines;
-	// Pi 1.5.0 reuses rendered blocks across renders; drop them so every token replays.
-	delete clone.blocks;
+	// Pi 1.5.0 reuses a rendered block whenever its source repeats, across renders and
+	// within one (every "\n\n" between paragraphs), skipping renderToken for it. The
+	// replay counts rows per renderToken call, so defeat the lookup on the map Pi
+	// stores in `blocks` and every token replays.
+	Object.defineProperty(clone, "blocks", {
+		get: () => undefined,
+		set: (ref: { deref?(): Map<string, unknown> | undefined } | undefined) => {
+			const blocks = ref?.deref?.();
+			if (blocks) blocks.get = () => undefined;
+		},
+	});
 	const renderToken = component.renderToken;
 	const rows = new Map<number, Row>();
 	let depth = 0;

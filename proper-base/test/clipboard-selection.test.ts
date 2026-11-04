@@ -102,6 +102,24 @@ test("paragraphs retain logical breaks but remove margins and screen wrapping", 
 	assert.equal(app.host.getActiveSelectionText(), text);
 });
 
+test("repeated blank lines keep later paragraphs aligned to their rows", () => {
+	const text =
+		"First paragraph here.\n\nSecond paragraph here.\n\nWhich do you want: leave it, or implement the narrow auto-resume for engine restarts?";
+	const app = fixture(text, 40);
+	installClipboardSelection(app.host as unknown as TUI);
+	assert.equal(app.host.getActiveSelectionText(), text);
+	const last = app.lines.length - 1;
+	app.host.selectionAnchor.row = last - 1;
+	app.host.selectionAnchor.col = 12;
+	app.host.selectionFocus.row = last;
+	app.host.selectionFocus.col = 16;
+	app.host.selectionFocus.boundary = false;
+	assert.equal(
+		app.host.getActiveSelectionText(),
+		"the narrow auto-resume for engine restarts",
+	);
+});
+
 test("code preserves indentation, literal pipes, and real line breaks", () => {
 	const code =
 		'if (ready) {\n    echo "hello" | somethingVeryLongWithoutSpaces\n\n    next();\n}';

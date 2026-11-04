@@ -184,7 +184,7 @@ Pure cases cover wrapped URLs, source paths with line and column suffixes, comma
 
 Real Markdown, Box, ScrollView, and fullscreen selection methods verify copied text loses display-only formatting without changing rendered output.
 
-Cases cover the reported blockquote through Pi's native clipboard callback, nested quotes, paragraph boundaries and literal newlines, wrapped paths, code indentation and literal pipes, partial Unicode selections, reverse drags, stale source fallback, unsupported list and non-transcript selections, missing renderer methods, reload takeover, and restoration of the prototype getter. Clipboard writes use a recording callback rather than touching the system clipboard.
+Cases cover the reported blockquote through Pi's native clipboard callback, nested quotes, paragraph boundaries and literal newlines, repeated blank lines between paragraphs with a partial selection of the wrapped last paragraph, wrapped paths, code indentation and literal pipes, partial Unicode selections, reverse drags, stale source fallback, unsupported list and non-transcript selections, missing renderer methods, reload takeover, and restoration of the prototype getter. Clipboard writes use a recording callback rather than touching the system clipboard.
 
 ## Hyperlink identity fixture
 
