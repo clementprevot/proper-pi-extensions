@@ -225,3 +225,91 @@ test("automatic naming leaves explicit and established sessions alone", async ()
 		}
 	}
 });
+
+function prCreated(number: number, overrides?: Record<string, unknown>) {
+	return {
+		toolName: "bash",
+		input: { command: "gh pr create --draft --fill" },
+		content: [
+			{ type: "text", text: `https://github.com/o/r/pull/${number}\n` },
+		],
+		isError: false,
+		...overrides,
+	};
+}
+
+// @lat: [[lat.md/proper-base/tests#Verification#Pull request prefix]]
+test("a pull request opened before the first title waits for it", async () => {
+	const fixture = await createFixture();
+	try {
+		const toolResult = fixture.handlers.get("tool_result");
+		const messageEnd = fixture.handlers.get("message_end");
+		assert.ok(toolResult);
+		assert.ok(messageEnd);
+
+		await toolResult(prCreated(42), fixture.ctx);
+		assert.equal(fixture.getName(), undefined);
+
+		await messageEnd(
+			{
+				message: {
+					role: "assistant",
+					stopReason: "stop",
+					content: [
+						{
+							type: "text",
+							text: "Opened.\n<session_title>Ship the fix</session_title>",
+						},
+					],
+				},
+			},
+			fixture.ctx,
+		);
+		assert.equal(fixture.getName(), "[#42] Ship the fix");
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("a first response without a title still names the pull request", async () => {
+	const fixture = await createFixture();
+	try {
+		await fixture.handlers.get("tool_result")?.(prCreated(7), fixture.ctx);
+		await fixture.handlers.get("message_end")?.(
+			{
+				message: {
+					role: "assistant",
+					stopReason: "stop",
+					content: [{ type: "text", text: "Opened." }],
+				},
+			},
+			fixture.ctx,
+		);
+		assert.equal(fixture.getName(), "[#7]");
+	} finally {
+		await fixture.cleanup();
+	}
+});
+
+test("a named session gets one prefix per created pull request", async () => {
+	const fixture = await createFixture({ name: "Manual name" });
+	try {
+		const toolResult = fixture.handlers.get("tool_result");
+		assert.ok(toolResult);
+
+		await toolResult(prCreated(5), fixture.ctx);
+		assert.equal(fixture.getName(), "[#5] Manual name");
+		await toolResult(prCreated(6), fixture.ctx);
+		await toolResult(prCreated(6), fixture.ctx);
+		assert.equal(fixture.getName(), "[#5] [#6] Manual name");
+
+		await toolResult(prCreated(8, { isError: true }), fixture.ctx);
+		await toolResult(
+			prCreated(9, { input: { command: "gh pr view 9" } }),
+			fixture.ctx,
+		);
+		assert.equal(fixture.getName(), "[#5] [#6] Manual name");
+	} finally {
+		await fixture.cleanup();
+	}
+});

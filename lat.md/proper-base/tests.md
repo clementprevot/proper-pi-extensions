@@ -8,6 +8,12 @@ A session integration fixture verifies first-response naming without a second mo
 
 It proves a fresh unnamed branch receives the title instruction, the streamed metadata marker stays hidden, terminal control characters are removed before `pi.setSessionName()`, and later turns stop receiving the instruction. Separate phases keep naming armed after an aborted response, stop after completed output omits metadata, and prove explicit names or branches with prior assistant output are never renamed.
 
+## Pull request prefix
+
+Unit cases cover reading the created pull request number and building the `[#<number>]` prefix.
+
+The session-title fixture then proves a prefix waits for the first title, still names a session whose first response has no title, stacks one tag per new pull request on a named session, and ignores failed calls and other `gh pr` commands.
+
 ## Session listing fixtures
 
 Session-listing tests build real JSONL session files in temporary directories and read them back.

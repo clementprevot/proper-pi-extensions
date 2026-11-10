@@ -73,6 +73,10 @@ import { installJumpToBottom } from "./src/jump-to-bottom.ts";
 import { installOsc8LinkIds } from "./src/osc8-link-ids.ts";
 import { installOverlayScroll } from "./src/overlay-scroll.ts";
 import {
+	createdPullRequestNumber,
+	withPullRequestPrefix,
+} from "./src/pr-session-prefix.ts";
+import {
 	applyProactiveDelegation,
 	readProactiveDelegationEnabled,
 } from "./src/proactive-delegation.ts";
@@ -404,6 +408,12 @@ export default function (pi: ExtensionAPI) {
 	let pendingPrompt: PendingPrompt | undefined;
 	let restoreRequest: RestoreRequest | undefined;
 	let sessionTitlePending = false;
+	let pendingPullRequests: string[] = [];
+	const applySessionName = (title = pi.getSessionName?.()) => {
+		const name = withPullRequestPrefix(title, pendingPullRequests);
+		pendingPullRequests = [];
+		if (name && name !== pi.getSessionName?.()) pi.setSessionName?.(name);
+	};
 	const promptDisplay = createPromptDisplay();
 
 	const markdownTransformer: MarkdownTransformer = (markdown, context) => {
@@ -627,6 +637,7 @@ export default function (pi: ExtensionAPI) {
 		skills.prepare(event);
 		if (!sessionTitlePending || pi.getSessionName?.()) {
 			sessionTitlePending = false;
+			applySessionName();
 			return;
 		}
 		appendPromptSection(
@@ -664,6 +675,7 @@ export default function (pi: ExtensionAPI) {
 				event.message.stopReason === "length"
 			) {
 				sessionTitlePending = false;
+				applySessionName();
 			}
 			return;
 		}
@@ -671,7 +683,7 @@ export default function (pi: ExtensionAPI) {
 		if (!extracted) return;
 
 		sessionTitlePending = false;
-		pi.setSessionName?.(extracted);
+		applySessionName(extracted);
 	});
 
 	pi.on("agent_start", () => {
@@ -727,10 +739,25 @@ export default function (pi: ExtensionAPI) {
 		imagePreview?.clear();
 	});
 
-	// Esc on the questionnaire resolves a normal tool result, so the turn
-	// continues and the model answers a decline it did not need. Aborting
-	// returns to the prompt instead, matching Esc during streaming.
+	// @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Pull request prefix]]
 	pi.on("tool_result", (event, ctx) => {
+		if (event.toolName === "bash") {
+			const command = (event.input as { command?: unknown } | undefined)
+				?.command;
+			if (event.isError || typeof command !== "string") return;
+			const output = event.content
+				.map((part) => (part.type === "text" ? part.text : ""))
+				.join("\n");
+			const number = createdPullRequestNumber(command, output);
+			if (!number) return;
+			pendingPullRequests.push(number);
+			// A fresh session is titled at the end of the run: the prefix waits.
+			if (!sessionTitlePending || pi.getSessionName?.()) applySessionName();
+			return;
+		}
+		// Esc on the questionnaire resolves a normal tool result, so the turn
+		// continues and the model answers a decline it did not need. Aborting
+		// returns to the prompt instead, matching Esc during streaming.
 		if (event.toolName !== "ask_user_question") return;
 		const details = event.details as QuestionnaireDetails | undefined;
 		// The tool also reports `cancelled` for host and validation failures,
@@ -785,6 +812,7 @@ export default function (pi: ExtensionAPI) {
 		pendingPrompt = undefined;
 		restoreRequest = undefined;
 		sessionTitlePending = false;
+		pendingPullRequests = [];
 		promptDisplayHost.dispose();
 		skills.stop();
 	});
@@ -795,6 +823,7 @@ export default function (pi: ExtensionAPI) {
 		// /clear restores its captured session Fast after startup completes.
 		fastOverlay.resetSession();
 		promptDisplayHost.activate(ctx.sessionManager);
+		pendingPullRequests = [];
 		sessionTitlePending =
 			!pi.getSessionName?.() &&
 			!ctx.sessionManager

@@ -32,6 +32,12 @@ A markdown transformer hides the marker as soon as it appears during streaming. 
 
 Tool-use responses may defer the marker until the final response in the same agent run. An aborted or failed response leaves naming armed for a retry; a successful final response that omits the marker ends the attempt rather than adding the instruction to later user turns.
 
+## Pull request prefix
+
+When a successful `bash` call runs `gh pr create`, proper-base reads the number from the last pull request URL in its output and prefixes the session name with `[#<number>]`, so a session is easy to find by its pull request.
+
+Each new pull request adds its own tag after the existing ones, oldest first, and a number already in the prefix is never added twice. While a fresh session still waits for its first title, the prefix waits too and joins the title when it lands; a first response that ends without a title names the session with the prefix alone. Failed calls and other `gh pr` commands change nothing.
+
 ## Model-preserving clear
 
 `/clear` follows Pi's native new-session replacement lifecycle, then restores the outgoing provider, model, thinking level, session Fast flag, and session context-window choice.
