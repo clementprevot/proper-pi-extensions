@@ -40,6 +40,11 @@ function fixture() {
 	let transform: ((event: any) => any) | undefined;
 	const extension: any = {
 		path: "test",
+		// The record Pi 1.5.1 stores for a transformer registered without options.
+		markdownTransformer: {
+			transformer: marker,
+			messageTypes: new Set(["user", "assistant", "assistant-thinking"]),
+		},
 		commands: new Map(),
 		handlers: new Map([
 			["input", [(event: any) => transform?.(event) ?? { action: "continue" }]],
@@ -96,10 +101,11 @@ function fixture() {
 	const ui: any = Object.setPrototypeOf(
 		{
 			session,
-			getMarkdownTransformers: () => [marker],
+			getMarkdownTransformers: () => runner.getMarkdownTransformers(),
 			getMarkdownThemeWithSettings: () => getMarkdownTheme(),
 			chatContainer: new Container(),
 			loadedResourcesContainer: new Container(),
+			pendingMessagesContainer: new Container(),
 			showStatus() {},
 			toolOutputExpanded: false,
 			outputPad: 1,
@@ -126,6 +132,9 @@ function fixture() {
 		display,
 		transform(fn: typeof transform) {
 			transform = fn;
+		},
+		disown() {
+			delete extension.markdownTransformer;
 		},
 		reload() {
 			adapter.dispose();
@@ -194,7 +203,7 @@ test("skill chains render separate native disclosures without changing messages 
 		assert.deepEqual(host.history, [text, text]);
 		assert.deepEqual(message, before);
 		host.ui.chatContainer.clear();
-		host.ui.getMarkdownTransformers = () => [];
+		host.disown();
 		host.ui.addMessageToChat(message);
 		assert.match(
 			render(),

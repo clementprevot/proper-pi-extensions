@@ -59,7 +59,11 @@ package, tsc typechecks, npm pack dry-runs, exemplars JSON parse,
 exists anywhere.
 
 Package releases use `.release-me.json` and package-scoped tags. Run
-`./tools/release-me/release.sh bump <part> <package>` from the repo root. The
+`./tools/release-me/release.sh bump <part> <package>` from the repo root.
+The release tool does not write changelogs: before bumping an extension
+package, add its notes to `<package>/CHANGELOG.md` under a `## [x.y.z]`
+heading for the version being released. Pi shows those entries to users
+after an update, and the commit gate rejects a release without one. The
 GitHub release workflow verifies and packs without OIDC, then publishes the
 exact artifact from a protected `npm-release` environment. Every package
 has its npm trusted publisher registered and a matching `<package>-v*` tag
@@ -86,7 +90,7 @@ workflow can publish it.
   and deletes a legacy manual models.json entry for it (JSONC files are
   left alone and need a manual edit). Stray
   requests on the placeholder run on the router's `fallbackModel`.
-- Toolchain: Node 22.19+, Pi 1.5.0 tested (proper-llm-router requires
+- Toolchain: Node 22.19+, Pi 1.5.2 tested (proper-llm-router requires
   1.1.0 for Claude Haiku 5.5 in the built-in catalog; proper-pacify requires 0.99.0
   for prompt preflight dispositions; proper-compact and
   proper-model-prompts require 0.87.0), TypeScript 6.

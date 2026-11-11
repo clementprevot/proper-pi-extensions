@@ -26,7 +26,7 @@ Native custom-message, branch-summary, and compaction projections retain provena
 
 ## Native compaction lifecycle
 
-Pi 1.5.0 AgentSession compaction methods persist hook summaries, native cut boundaries, and usage while preserving original entries.
+Pi 1.5.2 AgentSession compaction methods persist hook summaries, native cut boundaries, and usage while preserving original entries.
 
 The offline prototype fixture supplies the host's message-provenance map. Split focus and previous state survive three cycles; outgoing prompts separate conversation data from continuation instructions, include public progress, and exclude private thinking, signatures, and retained later messages. Chunk usage is summed across calls. Automatic-budget regressions cover complete multi-call source coverage in both ordinary and branch summaries, including a session-reduced context window. Large reasoning output remains separate from the bounded checkpoint text; oversized checkpoints fall back visibly.
 
@@ -47,6 +47,8 @@ A simulated pending-overflow wrapper proves the documented hook-order limitation
 ## Branch summaries and recall
 
 Branch summaries require opt-in and retain focus. Recall pages original public text after compaction, follows explicit source-branch references, excludes unrelated branches and private data, and paginates search without repeating matches.
+
+An emoji fixture pages at limits that cut inside surrogate pairs, including a limit below one character and a caller offset inside a pair, and requires well-formed pages that reassemble the original and well-formed search excerpts.
 
 Context-edit replacements and omissions affect ordinary compaction but deliberately do not rewrite branch summaries or recall. A native branch-collection regression verifies that those raw-history paths preserve original evidence.
 

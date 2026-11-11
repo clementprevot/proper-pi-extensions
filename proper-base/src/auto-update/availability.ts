@@ -4,8 +4,19 @@ import {
 	type ExtensionContext,
 	InteractiveMode,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { installWrapper } from "../host-interop.ts";
 import type { UpdateKind } from "./readiness.ts";
+
+function restartHint(text: string): string {
+	const lines = text.split("\n");
+	const instruction = stripVTControlCharacters(lines[1] ?? "").match(
+		/^(New version .+ is available\.|Package updates are available\.) Run pi update(?: --extensions)?$/,
+	);
+	if (!instruction) return text;
+	lines[1] = `${instruction[1]} Restart Pi to install detected updates.`;
+	return lines.join("\n");
+}
 
 function showRestartHint(receiver: object, start: number): void {
 	const chat = Reflect.get(receiver, "chatContainer") as
@@ -13,17 +24,17 @@ function showRestartHint(receiver: object, start: number): void {
 		| undefined;
 	if (!Array.isArray(chat?.children)) return;
 	for (const child of chat.children.slice(start)) {
-		if (child.constructor?.name !== "Text") continue;
+		if (!(child instanceof Text)) continue;
+		// Pi's notices are ThemedText: empty until first render and rebuilt from
+		// `build` after every theme change, so the hint has to live in `build`.
+		const build = Reflect.get(child, "build");
+		if (typeof build === "function")
+			Reflect.set(child, "build", () =>
+				restartHint(Reflect.apply(build, child, [])),
+			);
 		const text = Reflect.get(child, "text");
-		const setText = Reflect.get(child, "setText");
-		if (typeof text !== "string" || typeof setText !== "function") continue;
-		const lines = text.split("\n");
-		const instruction = stripVTControlCharacters(lines[1] ?? "").match(
-			/^(New version .+ is available\.|Package updates are available\.) Run pi update(?: --extensions)?$/,
-		);
-		if (!instruction) continue;
-		lines[1] = `${instruction[1]} Restart Pi to install detected updates.`;
-		Reflect.apply(setText, child, [lines.join("\n")]);
+		const hinted = typeof text === "string" ? restartHint(text) : text;
+		if (hinted !== text) child.setText(hinted);
 	}
 }
 

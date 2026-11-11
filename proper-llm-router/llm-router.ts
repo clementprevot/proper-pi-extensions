@@ -1240,6 +1240,8 @@ function googleThinkingOptions(model: RegistryModel, effort: string) {
 		pro ||
 		gemma ||
 		/gemini-3(?:\.\d+)?-flash/.test(id) ||
+		// Gemini 4 and later take discrete levels too, as Pi's own mapping does.
+		/gemini-(?:[4-9]|[1-9]\d)/.test(id) ||
 		id === "gemini-flash-latest" ||
 		id === "gemini-flash-lite-latest"
 	) {

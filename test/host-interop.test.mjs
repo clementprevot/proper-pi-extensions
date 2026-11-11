@@ -92,7 +92,6 @@ for (const baseFirst of [true, false]) {
 				const hooks = {
 					active: true,
 					manager: fixture.manager,
-					transformer: (text) => text,
 					displayRevision: 0,
 					async prepare(_ctx, event) {
 						return {
@@ -111,6 +110,8 @@ for (const baseFirst of [true, false]) {
 						return text;
 					},
 				};
+				// Base recognizes its UI by the transformer its extension registered.
+				fixture.pi.registerMarkdownTransformer(marker);
 				const base = () => {
 					const adapter = installPromptDisplayHost(
 						display,
@@ -134,10 +135,7 @@ for (const baseFirst of [true, false]) {
 						streamingBehavior: "steer",
 					});
 					const messages = [fixture.sent.at(-1), ...fixture.queued.slice(-3)];
-					const ui = {
-						session: fixture.session,
-						getMarkdownTransformers: () => [marker, hooks.transformer],
-					};
+					const ui = { session: fixture.session };
 					const displayed = messages.map((message) =>
 						host.InteractiveMode.prototype.getUserMessageText.call(ui, message),
 					);

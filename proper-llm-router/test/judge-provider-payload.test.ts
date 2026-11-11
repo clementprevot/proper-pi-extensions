@@ -223,6 +223,7 @@ test("Google judge sends supported raw levels and leaves reasoning headroom", as
 	for (const [id, level] of [
 		["gemini-3.1-pro-preview", "HIGH"],
 		["gemini-3-flash-preview", "MEDIUM"],
+		["gemini-4-argon", "MEDIUM"],
 	]) {
 		const payloads = await judgePayload({
 			...baseModel,

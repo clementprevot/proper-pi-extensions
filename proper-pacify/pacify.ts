@@ -1075,7 +1075,6 @@ export default function properPacify(pi: ExtensionAPI): void {
 		bypasses: [],
 		displayRevision: 0,
 		host: undefined,
-		transformer: (markdown) => markdown,
 		prepare: (ctx, event) => prepareIncoming(pi, ctx, event),
 		bind: (message, origin) => bindMessage(live, message, origin),
 		persist(message, entryId, manager) {
@@ -1117,7 +1116,7 @@ export default function properPacify(pi: ExtensionAPI): void {
 	};
 	runtimeHost[RUNTIME] = live;
 	live.host = installHostHooks(live);
-	pi.registerMarkdownTransformer?.(live.transformer);
+	pi.registerMarkdownTransformer?.(live.host.transformer);
 
 	// @lat: [[proper-pacify#Session transcript]]
 	pi.registerEntryRenderer<PacifyLog>(

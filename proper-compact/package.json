@@ -27,6 +27,7 @@
     "compact.ts",
     "context.ts",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

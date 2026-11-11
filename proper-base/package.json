@@ -37,6 +37,7 @@
     "index.ts",
     "src",
     "README.md",
+    "CHANGELOG.md",
     "UPDATES.md",
     "LICENSE"
   ],

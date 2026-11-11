@@ -29,7 +29,6 @@ export type InputDecision = {
 export interface PacifyHostHooks {
 	active: boolean;
 	manager: ExtensionContext["sessionManager"] | undefined;
-	transformer: MarkdownTransformer;
 	displayRevision: number;
 	prepare(
 		ctx: ExtensionContext,
@@ -44,6 +43,7 @@ export interface PacifyHostHooks {
 // Markdown context. Keep the host adapter here; remove it when those APIs exist.
 // @lat: [[proper-pacify#Dispatch priority]]
 export function installHostHooks(hooks: PacifyHostHooks): {
+	transformer: MarkdownTransformer;
 	inDispatch(): boolean;
 	dispose(): void;
 } {
@@ -234,6 +234,12 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 
 	// Capture identity at component construction, not by text during rendering.
 	// The host still builds and renders its own user components and transformers.
+	// Pi 1.5.1 hands out a fresh closure per registered transformer, so ours
+	// cannot be found by identity: name the message while that component's
+	// transformers run instead. Rendering is synchronous.
+	let rendering: Message | undefined;
+	const transformer: MarkdownTransformer = (...args) =>
+		rendering && hooks.active ? hooks.transform(rendering, ...args) : args[0];
 	type InteractiveHost = {
 		session: AgentSession;
 		chatContainer: { children: unknown[] };
@@ -251,20 +257,20 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 			return addMessage.call(this, message, options);
 		}
 		const get = this.getMarkdownTransformers;
-		// Reload rebuilds chat before session_start assigns the manager. The
-		// runner's marker identifies ownership even during that pre-start phase.
-		if (!get.call(this).includes(hooks.transformer))
-			return addMessage.call(this, message, options);
 		const own = Object.hasOwn(this, "getMarkdownTransformers");
 		const getForMessage = () =>
-			get
-				.call(this)
-				.map((transformer) =>
-					transformer === hooks.transformer
-						? (...args: Parameters<MarkdownTransformer>) =>
-								hooks.active ? hooks.transform(message, ...args) : args[0]
-						: transformer,
-				);
+			get.call(this).map(
+				(each): MarkdownTransformer =>
+					(...args) => {
+						const outer = rendering;
+						rendering = message;
+						try {
+							return each(...args);
+						} finally {
+							rendering = outer;
+						}
+					},
+			);
 		const start = this.chatContainer.children.length;
 		this.getMarkdownTransformers = getForMessage;
 		try {
@@ -291,6 +297,7 @@ export function installHostHooks(hooks: PacifyHostHooks): {
 	restorers.push(installWrapper(prototype, "addMessageToChat", wrappedAdd));
 
 	return {
+		transformer,
 		inDispatch: () => dispatch.getStore() !== undefined,
 		dispose() {
 			hooks.active = false;

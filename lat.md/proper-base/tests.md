@@ -26,7 +26,7 @@ Separate outgoing and replacement extension instances prove that no stale API is
 
 ## Sticky defaults fixture
 
-A Pi 1.5.0 host fixture creates a real `AgentSession`, `SettingsManager`, `ModelRuntime`, resource loader, and extension lifecycle around the compatibility adapter.
+A Pi 1.5.2 host fixture creates a real `AgentSession`, `SettingsManager`, `ModelRuntime`, resource loader, and extension lifecycle around the compatibility adapter.
 
 It proves an explicit thinking choice updates the live settings cache and the next model-switch resolver reads it; an automatic switch to a non-reasoning model clamps the session to `off` without redefining the global preference; an explicit `off` persists even when Pi emits no event; a per-model level remains model-local; and selecting `llm-router/auto` persists neither its model identity nor its forced `off`. It also exercises `session_start` activation and `session_shutdown` restoration. A focused config case proves `"stickyDefaults": false` remains independent of sibling proper-base choices.
 
@@ -110,7 +110,7 @@ The fixture uses DefaultResourceLoader, ModelRuntime, AgentSession, ExtensionRun
 
 Focused fixtures verify raw template display and independently collapsible skill sections without altering model-facing instructions.
 
-The fixture invokes real Pi prompt dispatch, input handlers, expansion, and user-text extraction with transport stubbed. Handled and model-rejected submissions cannot relabel the next prompt. Direct steering, follow-ups, and queued prompts with identical expanded bodies retain separate raw invocations while plain identical text stays unchanged. Concurrent transformations finishing out of order retain identity, undelivered queue entries produce no records, and reload restores entry-ID links before session_start. Disposal restores native display; legacy hashes, foreign-branch IDs, and copied message objects cannot relabel a message. Native transcript components render multiple skills as separate disclosures before the visible request, both live and after reload. Mouse clicks expand one skill, the global expansion control toggles both, original messages and attachments stay intact, and editor replay receives one unsplit history entry. Unowned hosts retain native behavior.
+The fixture invokes real Pi prompt dispatch, input handlers, expansion, and user-text extraction with transport stubbed. Handled and model-rejected submissions cannot relabel the next prompt. Direct steering, follow-ups, and queued prompts with identical expanded bodies retain separate raw invocations while plain identical text stays unchanged. Concurrent transformations finishing out of order retain identity, undelivered queue entries produce no records, and reload restores entry-ID links before session_start. Disposal restores native display; legacy hashes, foreign-branch IDs, and copied message objects cannot relabel a message. Native transcript components render multiple skills as separate disclosures before the visible request, both live and after reload. Mouse clicks expand one skill, the global expansion control toggles both, original messages and attachments stay intact, and editor replay receives one unsplit history entry. Ownership runs through the real `ExtensionRunner` registration record and its transformer closures, so a host change to either fails the fixture; a runner without the registration retains native behavior.
 
 ## Cross-package dispatch fixture
 
@@ -158,7 +158,7 @@ The fixture builds Pi's document/dock shape under a layout root, installs the wr
 
 ## Base keybinding fixture
 
-A session integration fixture applies the real Pi 1.5.0 `KeybindingsManager` to the installed editor factory.
+A session integration fixture applies the real Pi 1.5.2 `KeybindingsManager` to the installed editor factory.
 
 It verifies Ctrl+V and Ctrl+Shift+V both match Pi's clipboard paste action without removing an existing Alt+V alias. Alt+Enter matches prompt newline and no longer matches follow-up queueing, a user's own newline alias survives beside it, and proper-base adds no Shift+Enter of its own; under a user override that chord stops matching, while Pi's untouched defaults keep both Shift+Enter and Ctrl+J. Fullscreen transcript actions claim Ctrl+Shift+Home, Ctrl+Shift+End, Ctrl+Shift+PageUp, and Ctrl+Shift+PageDown instead of unmodified or Shift-only keys; the editor retains its native unmodified bindings; and modern modifier sequences match the intended actions. Navigation fixtures verify a recalled prompt ends at line 0, column 0; Home first reaches a soft-wrapped visible-row start and then the full prompt start, including across a hard newline; and End reaches the logical-line end and then the full prompt end. Reload cases prove native reload reapplies current bindings without losing unrelated user values, fresh code takes over the reload wrapper, a stale disposer cannot remove it, and shutdown restores the exact prior reload method and user bindings.
 
@@ -294,7 +294,7 @@ Strict compiler and coverage gates keep test fixtures from hiding unsafe assumpt
 
 ## Coverage boundary
 
-Host-boundary fixtures instantiate Pi 1.5.0's real session, settings, model, selector, manager, extension-runner, and editor surfaces.
+Host-boundary fixtures instantiate Pi 1.5.2's real session, settings, model, selector, manager, extension-runner, and editor surfaces.
 
 The sticky-default fixture uses `AgentSession`, `SettingsManager`, `ModelRuntime`, the resource loader, and extension runner. Session search uses Pi's selector and manager, while image history uses pi-tui's `Editor`. These cover settings-cache resolution, lifecycle teardown, selector refiltering, native history state, and Up handling. Session-title, history-seeding, autocomplete, early-cancellation, fullscreen-keybinding, and footer fixtures run the extension's complete lifecycle callbacks against minimal fake API and component trees, and the questionnaire fixture calls its registered `tool_result` handler directly.
 

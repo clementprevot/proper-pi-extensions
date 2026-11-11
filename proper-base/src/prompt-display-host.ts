@@ -15,6 +15,20 @@ type Controller = { activate(manager: Manager): void; dispose(): void };
 const INSTALLED = Symbol.for("pi-proper-base.prompt-display");
 const host = globalThis as typeof globalThis & { [INSTALLED]?: Controller };
 
+// Pi 1.5.1 hands out a fresh closure per registered transformer, so only the
+// runner's registration record still identifies the UI this extension owns.
+function owns(session: AgentSession, marker: MarkdownTransformer): boolean {
+	const runner = session.extensionRunner;
+	const extensions: unknown = runner && Reflect.get(runner, "extensions");
+	return (
+		Array.isArray(extensions) &&
+		extensions.some((extension) => {
+			const registered = extension?.markdownTransformer;
+			return registered === marker || registered?.transformer === marker;
+		})
+	);
+}
+
 /** Pi 0.86 has neither input correlation nor message identity in Markdown hooks.
  * Keep this adapter removable when those APIs exist. Never emulate expansion.
  * @lat: [[lat.md/proper-base/lifecycle#Prompt history lifecycle#Prompt display]]
@@ -103,7 +117,6 @@ export function installPromptDisplayHost(
 	type InteractiveHost = {
 		session: AgentSession;
 		getUserMessageText(message: Message): string;
-		getMarkdownTransformers(): MarkdownTransformer[];
 		addMessageToChat(
 			message: Message,
 			options?: { populateHistory?: boolean },
@@ -113,7 +126,7 @@ export function installPromptDisplayHost(
 	const prototype = InteractiveMode.prototype as unknown as InteractiveHost;
 	const original = prototype.getUserMessageText;
 	const wrapped: typeof original = function (this: InteractiveHost, message) {
-		if (!active || !this.getMarkdownTransformers().includes(marker))
+		if (!active || !owns(this.session, marker))
 			return original.call(this, message);
 		if (manager !== this.session.sessionManager) {
 			// Reload rebuilds chat before session_start. Resolve entry identities now.
@@ -132,11 +145,7 @@ export function installPromptDisplayHost(
 		message,
 		options,
 	) {
-		if (
-			!active ||
-			message.role !== "user" ||
-			!this.getMarkdownTransformers().includes(marker)
-		)
+		if (!active || message.role !== "user" || !owns(this.session, marker))
 			return addMessage.call(this, message, options);
 		const text = this.getUserMessageText(message);
 		const { skills, request } = splitSkillText(text);

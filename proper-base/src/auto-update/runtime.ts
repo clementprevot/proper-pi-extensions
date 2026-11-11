@@ -130,7 +130,14 @@ export function summary(items: string[]): string {
 // command arguments, registry credentials, or private repository URLs.
 export function updateStatus(line: string): string | undefined {
 	const text = stripVTControlCharacters(line).trim();
-	if (text === "Updated packages") return "Checking Pi version…";
+	// Pi 1.5.1 replaced "Updated packages" with these summaries; the per-package
+	// lines after them stay unrecognized because they can name private sources.
+	if (
+		/^(?:Updated packages|Updated \d+ packages?:|Packages are already up to date|No packages were updated, see the warnings above|Skipped package updates \(offline mode\))$/.test(
+			text,
+		)
+	)
+		return "Checking Pi version…";
 	if (text === "Updating user npm packages...")
 		return "Updating global packages…";
 	if (text === "Updating project npm packages...")

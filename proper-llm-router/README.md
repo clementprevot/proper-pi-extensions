@@ -220,7 +220,7 @@ modified.
 Use Node 22.19 or newer and Pi 1.1.0 or newer, the first release whose
 built-in catalog lists every default model (Claude Haiku 5.5 arrived in
 1.1.0; virtual models and GPT-6.1 Sol in 0.99.1). The
-extension and `ultra` compatibility layer are tested against Pi 1.5.0.
+extension and `ultra` compatibility layer are tested against Pi 1.5.2.
 
 Install the published package:
 

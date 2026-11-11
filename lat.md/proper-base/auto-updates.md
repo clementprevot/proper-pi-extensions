@@ -28,11 +28,13 @@ Readiness is checked before expensive work and rechecked under the installer loc
 
 The adapter observes existing native calls without starting duplicate checks. Eligible native notices say: Restart Pi to install detected updates.
 
+Pi builds those notices as themed text that is empty until first render and rebuilt after every theme change, so the adapter rewrites the notice's builder, not its current text; plain text components from older hosts are rewritten in place.
+
 The exported `DefaultPackageManager.checkForAvailableUpdates` result retains user/project scope. Its receiver must match the current agent directory and context working directory; project observations additionally require trust. `InteractiveMode.showNewVersionNotification` observes positive Pi releases only and must belong to the current session manager. Methods retain their original receivers, arguments, results, and native errors. Persistence errors with filesystem codes produce a sanitized warning rather than changing native results.
 
 After a native Pi/package notice renders, only its newly added Text instruction line is replaced, preserving the title, version, package list, release notes, and changelog. This display-only match never determines readiness. Restart guidance requires saved readiness, an enabled observer, and a supported launcher validated at startup using local file reads. Package guidance additionally requires every reported scope to be recorded and current project trust. Disabled, unsupported, failed-persistence, or unfamiliar notice shapes keep native manual-command instructions. Historical notices are untouched.
 
-Imports use Pi's virtual host exports so bundled CLI prototypes, not an independent development copy, are wrapped. Missing methods disable automatic updates with a warning. Observer ownership is released on shutdown and rebound on session start; in-flight results belonging to disposed or replaced contexts are ignored. The shared versioned method-wrapper protocol restores methods without clobbering active peers. Compatibility is exercised against the installed Pi 1.4.0 bundled host; this is a compatibility adapter, not an official update-event API.
+Imports use Pi's virtual host exports so bundled CLI prototypes, not an independent development copy, are wrapped. Missing methods disable automatic updates with a warning. Observer ownership is released on shutdown and rebound on session start; in-flight results belonging to disposed or replaced contexts are ignored. The shared versioned method-wrapper protocol restores methods without clobbering active peers. Compatibility is exercised against the installed Pi 1.5.2 bundled host; this is a compatibility adapter, not an official update-event API.
 
 ## Settings toggle
 

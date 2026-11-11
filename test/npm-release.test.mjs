@@ -36,6 +36,38 @@ test("npm release config matches publishable packages", async () => {
 	}
 });
 
+// @lat: [[lat#Package releases]]
+test("extension packages ship a changelog entry for their version", async () => {
+	for (const name of packages) {
+		const manifest = JSON.parse(
+			await readFile(new URL(`${name}/package.json`, root), "utf8"),
+		);
+		// Pi shows changelogs only for packages that load an extension.
+		if (!manifest.pi?.extensions) continue;
+		assert.ok(manifest.files.includes("CHANGELOG.md"), name);
+		const changelog = await readFile(
+			new URL(`${name}/CHANGELOG.md`, root),
+			"utf8",
+		);
+		// Pi's own heading rule; an `## ` line that fails it drops its entry.
+		const headings = changelog.match(/^## .*$/gm) ?? [];
+		const versions = headings.map((heading) =>
+			/^##\s+\[?(\d+)\.(\d+)\.(\d+)\]?/.exec(heading)?.slice(1).map(Number),
+		);
+		assert.ok(versions.length > 0 && versions.every(Boolean), name);
+		const released = manifest.version.split(".").map(Number);
+		const newest = versions[0];
+		const order =
+			newest[0] - released[0] ||
+			newest[1] - released[1] ||
+			newest[2] - released[2];
+		assert.ok(
+			order >= 0,
+			`${name}/CHANGELOG.md needs a "## [${manifest.version}]" entry before this version is released`,
+		);
+	}
+});
+
 // @lat: [[auto-update-tests#Base integration]]
 test("base ships automatic updates behind its existing extension entry", async () => {
 	const manifest = JSON.parse(
@@ -75,6 +107,7 @@ test("pacify ships runtime source without its test or config scaffolding", async
 		"host.ts",
 		"host-interop.ts",
 		"README.md",
+		"CHANGELOG.md",
 		"LICENSE",
 	]);
 	assert.deepEqual(manifest.pi.extensions, ["./pacify.ts"]);
@@ -94,6 +127,7 @@ test("router release packaging stays offline and runtime-only", async () => {
 		"llm-router.ts",
 		"exemplars.jsonl",
 		"README.md",
+		"CHANGELOG.md",
 		"LICENSE",
 		"THIRD_PARTY_NOTICES.md",
 	]);

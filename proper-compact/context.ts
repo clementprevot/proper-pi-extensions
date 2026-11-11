@@ -128,6 +128,15 @@ export function recallEntries(session: Session): SessionEntry[] {
 	return [...entries.values()];
 }
 
+// An index between the halves of a surrogate pair moves back to the pair's
+// start, so pages and excerpts never begin or end on a lone surrogate.
+function boundary(text: string, index: number): number {
+	return /[\uDC00-\uDFFF]/.test(text[index] ?? "") &&
+		/[\uD800-\uDBFF]/.test(text[index - 1] ?? "")
+		? index - 1
+		: index;
+}
+
 export interface RecallRequest {
 	entryId?: string;
 	query?: string;
@@ -163,12 +172,16 @@ export function recall(session: Session, request: RecallRequest): string {
 		const text = serializeEntry(entry);
 		if (!text)
 			throw new TypeError("Entry contains no public conversation text.");
+		const start = boundary(text, offset);
+		let end = boundary(text, offset + limit);
+		// A limit smaller than one character still returns it, so paging advances.
+		if (end <= start) end = start + 2;
 		return JSON.stringify({
 			entryId,
-			offset,
-			nextOffset: offset + limit < text.length ? offset + limit : null,
+			offset: start,
+			nextOffset: end < text.length ? end : null,
 			totalChars: text.length,
-			text: text.slice(offset, offset + limit),
+			text: text.slice(start, end),
 		});
 	}
 	if (!query || query.length > 200)
@@ -185,11 +198,11 @@ export function recall(session: Session, request: RecallRequest): string {
 			more = true;
 			break;
 		}
-		const start = Math.max(0, position - 80);
+		const start = boundary(text, Math.max(0, position - 80));
 		matches.push({
 			entryId: entry.id,
 			offset: start,
-			excerpt: text.slice(start, start + 320),
+			excerpt: text.slice(start, boundary(text, start + 320)),
 		});
 	}
 	return JSON.stringify({

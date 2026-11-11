@@ -129,6 +129,14 @@ test("native progress becomes concise status without exposing command output", (
 		["Updating project npm packages...", "Updating project packages…"],
 		["Updating git:https://secret@host/private...", "Updating git package…"],
 		["Updated packages", "Checking Pi version…"],
+		["Updated 2 packages:", "Checking Pi version…"],
+		["Updated 1 package:", "Checking Pi version…"],
+		["Packages are already up to date", "Checking Pi version…"],
+		[
+			"No packages were updated, see the warnings above",
+			"Checking Pi version…",
+		],
+		["Skipped package updates (offline mode)", "Checking Pi version…"],
 		[
 			"Updating pi with npm --registry=https://secret@host install...",
 			"Updating Pi…",
@@ -141,6 +149,7 @@ test("native progress becomes concise status without exposing command output", (
 	for (const line of [
 		"SECRET",
 		"npm warn private registry",
+		"  git:https://secret@host/private 1a2b3c4 -> 5d6e7f8",
 		"Updating npm:invalid/name...",
 	])
 		assert.equal(updateStatus(line), undefined);

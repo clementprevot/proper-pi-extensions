@@ -130,7 +130,11 @@ export function createHostFixture(register: (pi: ExtensionAPI) => void) {
 			renderers.set(type, renderer);
 		},
 		registerMarkdownTransformer(transformer: any) {
-			extension.markdownTransformer = transformer;
+			// The record Pi 1.5.1 stores for a transformer registered without options.
+			extension.markdownTransformer = {
+				transformer,
+				messageTypes: new Set(["user", "assistant", "assistant-thinking"]),
+			};
 		},
 		registerCommand(name: string, command: any) {
 			commands.set(name, { ...command, name });

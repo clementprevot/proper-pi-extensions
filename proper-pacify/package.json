@@ -30,6 +30,7 @@
     "host.ts",
     "host-interop.ts",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

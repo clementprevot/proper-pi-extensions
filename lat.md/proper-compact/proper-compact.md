@@ -64,7 +64,7 @@ The installed CLIProxyAPI proactive-compaction controller clears pending synthet
 
 The compact_recall tool searches and pages original public text through native session APIs, restricted to the current branch and explicitly referenced source branches.
 
-Search is literal, case-insensitive, and limited to eight matching entries per page. Entry reads return at most 16,000 serialized UTF-16 characters with continuation offsets. Source images, private thinking, hidden custom state, unrelated branches, arbitrary files, and other sessions are inaccessible.
+Search is literal, case-insensitive, and limited to eight matching entries per page. Entry reads return at most 16,000 serialized UTF-16 characters with continuation offsets. Page and excerpt cuts move back to a code point boundary, so text never begins or ends on half of a surrogate pair, and a limit smaller than one character still returns that character so paging advances. Source images, private thinking, hidden custom state, unrelated branches, arbitrary files, and other sessions are inaccessible.
 
 Recall exposes original public text even when context edits omit or replace it for future model requests. No copies of history are stored. Branch references absent after fork/export are reported unavailable. The summary carries a deterministic recall reminder, but storage access does not guarantee that an agent will retrieve the right evidence.
 

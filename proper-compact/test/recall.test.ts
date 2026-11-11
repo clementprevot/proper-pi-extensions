@@ -290,3 +290,45 @@ test("proper-base recovers invoked skills after native custom compaction", async
 	assert.equal(JSON.stringify(restored).split("SKILL_INVARIANT").length - 1, 1);
 	assert.deepEqual(pinSkillContext(restored, branch), restored);
 });
+
+// @lat: [[proper-compact/tests#Branch summaries and recall]]
+test("recall pages and excerpts never split a surrogate pair", async (t) => {
+	const f = await fixture(t);
+	const lone =
+		/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+	const id = f.manager.appendMessage(user(`${"😀".repeat(120)}NEEDLE`));
+	const original = f.manager.getEntry(id);
+	assert.ok(original);
+	// Odd limits put a cut inside a pair on every other page; 1 is below one character.
+	for (const limit of [1, 3, 173]) {
+		let actual = "";
+		let offset: number | null = 0;
+		while (offset !== null) {
+			const page = JSON.parse(
+				recall(f.manager, { entryId: id, offset, limit }),
+			);
+			assert.doesNotMatch(page.text, lone);
+			assert.ok(page.nextOffset === null || page.nextOffset > offset);
+			actual += page.text;
+			offset = page.nextOffset;
+		}
+		assert.equal(actual, serializeEntry(original));
+	}
+	// A caller-supplied offset inside a pair starts at that character.
+	const text = serializeEntry(original);
+	const inside = text.indexOf("😀") + 1;
+	const page = JSON.parse(recall(f.manager, { entryId: id, offset: inside }));
+	assert.equal(page.offset, inside - 1);
+	assert.doesNotMatch(page.text, lone);
+	// The excerpt window opens 80 units before the match, inside a pair for
+	// one of two adjacent alignments.
+	for (const pad of ["", "x"]) {
+		const other = f.manager.appendMessage(
+			user(`${pad}${"😀".repeat(200)}MARKER${pad}${"😀".repeat(200)}`),
+		);
+		const match = JSON.parse(recall(f.manager, { query: `MARKER${pad}😀` }))
+			.matches[0];
+		assert.equal(match.entryId, other);
+		assert.doesNotMatch(match.excerpt, lone);
+	}
+});

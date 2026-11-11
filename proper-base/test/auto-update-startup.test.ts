@@ -98,7 +98,8 @@ else if(process.argv[2]==='update') {
     await new Promise(resolve=>setTimeout(resolve,1100));
     console.log('base...');
     console.log('Updating project npm packages...');
-    console.log('Updated packages');
+    console.log('Updated 1 package:');
+    console.log('  git:https://SECRET@host/private 1a2b3c4 -> 5d6e7f8');
     console.log('Updating pi with npm --registry=https://SECRET@host install...');
     console.log('SECRET MUST NOT APPEAR');
   }

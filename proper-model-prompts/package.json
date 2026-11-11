@@ -29,6 +29,7 @@
     "model-prompts.ts",
     "defaults.ts",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

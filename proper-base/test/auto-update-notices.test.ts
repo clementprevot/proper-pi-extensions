@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { stripVTControlCharacters } from "node:util";
 import {
 	DefaultPackageManager,
 	type ExtensionContext,
 	InteractiveMode,
+	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { observeAvailability } from "../src/auto-update/availability.ts";
 
 // @lat: [[auto-update-tests#Native observer compatibility]]
 test("update notices offer restart only for saved, enabled, supported updates", async () => {
+	initTheme("dark", false);
 	const saved = [
 		[DefaultPackageManager.prototype, "checkForAvailableUpdates"],
 		[InteractiveMode.prototype, "showNewVersionNotification"],
@@ -35,11 +38,16 @@ test("update notices offer restart only for saved, enabled, supported updates", 
 		setText(text: string) {
 			this.text = text;
 		},
+		render: () => [],
+		invalidate() {},
 	};
-	const children: object[] = [original];
+	const chat = new Container();
+	chat.addChild(original);
+	const children: object[] = chat.children;
 	const screen = Object.create(InteractiveMode.prototype, {
 		sessionManager: { value: owner.sessionManager },
-		chatContainer: { value: { children } },
+		chatContainer: { value: chat },
+		ui: { value: { requestRender() {} } },
 	});
 	const manager = Object.assign(
 		Object.create(DefaultPackageManager.prototype),
@@ -50,36 +58,38 @@ test("update notices offer restart only for saved, enabled, supported updates", 
 		"checkForAvailableUpdates",
 		async () => [{ scope: "user" }, { scope: "project" }],
 	);
-	Reflect.set(InteractiveMode.prototype, "showNewVersionNotification", () => {
-		children.push(
-			new Text(
-				"\x1b[33mUpdate Available\x1b[0m\n\x1b[2mNew version 999.0.0 is available. Run \x1b[0m\x1b[36mpi update\x1b[0m",
-			),
-			note,
-			new Text("Changelog: https://pi.dev/changelog"),
-		);
-	});
+	// Pi's real notices run, so their component shape is the host's own; the
+	// extra child proves a non-Text component in the same notice is left alone.
+	const nativeShow = InteractiveMode.prototype.showNewVersionNotification;
 	Reflect.set(
 		InteractiveMode.prototype,
-		"showPackageUpdateNotification",
-		() => {
-			children.push(
-				new Text(
-					"Package Updates Available\nPackage updates are available. Run pi update --extensions\nPackages:\n- proper-base\n- @scope/extension",
-				),
-			);
+		"showNewVersionNotification",
+		function (this: InteractiveMode, ...args: Parameters<typeof nativeShow>) {
+			Reflect.apply(nativeShow, this, args);
+			children.push(note);
 		},
 	);
 	const observer = observeAvailability("/agent", () => ready);
 	assert.ok(observer);
+	const rendered = (component: object) =>
+		(component as Text)
+			.render(100)
+			.map((line) => stripVTControlCharacters(line).trim())
+			.join("\n");
+	const texts = (start: number) =>
+		children.slice(start).filter((child) => child instanceof Text);
+	let latest: Text[] = [];
 	const piNotice = () => {
 		const index = children.length;
 		screen.showNewVersionNotification({ version: "999.0.0" });
-		return Reflect.get(children[index] as object, "text") as string;
+		latest = texts(index);
+		return rendered(latest[0] as Text);
 	};
 	const packagesNotice = () => {
+		const index = children.length;
 		screen.showPackageUpdateNotification(["proper-base", "@scope/extension"]);
-		return Reflect.get(children.at(-1) as object, "text") as string;
+		latest = texts(index);
+		return rendered(latest[0] as Text);
 	};
 	try {
 		observer.setContext(owner);
@@ -87,10 +97,16 @@ test("update notices offer restart only for saved, enabled, supported updates", 
 			piNotice(),
 			/New version 999\.0\.0 is available\. Restart Pi to install detected updates\./,
 		);
+		// A theme change rebuilds the notice; the hint has to survive it.
+		(latest[0] as Text).invalidate();
+		assert.match(
+			rendered(latest[0] as Text),
+			/Restart Pi to install detected updates\./,
+		);
 		assert.match(Reflect.get(original, "text"), /Run pi update$/);
 		assert.match(note.text, /Run pi update$/);
 		assert.equal(
-			Reflect.get(children.at(-1) as object, "text"),
+			rendered(latest[1] as Text),
 			"Changelog: https://pi.dev/changelog",
 		);
 		assert.match(packagesNotice(), /Run pi update --extensions/);
