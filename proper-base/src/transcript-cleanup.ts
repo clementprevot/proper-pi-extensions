@@ -25,9 +25,19 @@ type AssistantComponent = Component & {
 	updateContent?(message: AssistantMessage, isStreaming?: boolean): void;
 	contentContainer?: ComponentContainer;
 };
-type MouseEntry = { component: Component; height: number };
+type ChildLines = {
+	width: number;
+	children: Component[];
+	parts: (readonly string[])[];
+	lines: string[];
+};
 type MouseLayoutHost = {
-	mouseLayout?: { width: number; children: MouseEntry[] };
+	childLines?: ChildLines;
+	/** Pi before 1.6 read this shape instead of childLines. */
+	mouseLayout?: {
+		width: number;
+		children: Array<{ component: Component; height: number }>;
+	};
 };
 /** Parts of an assistant message mapped to the children Pi built for them. */
 type ContentChildren = { lead?: Component; parts: Map<number, Component> };
@@ -55,7 +65,7 @@ type State = {
 type AssistantRenderCache = {
 	message: AssistantMessage;
 	width: number;
-	lines: Map<string, string[]>;
+	lines: Map<string, readonly string[]>;
 };
 type DetailKind = "tool" | "error";
 
@@ -67,17 +77,20 @@ const INERT: Component = { render: () => [], invalidate() {} };
 /** Rendered rows, plus the component behind each run of rows for mouse routing. */
 class Rendered {
 	readonly lines: string[] = [];
-	readonly layout: MouseEntry[] = [];
+	readonly children: Component[] = [];
+	readonly parts: (readonly string[])[] = [];
 
-	add(lines: string[], component: Component = INERT): void {
+	add(lines: readonly string[], component: Component = INERT): void {
 		if (!lines.length) return;
 		this.lines.push(...lines);
-		this.layout.push({ component, height: lines.length });
+		this.children.push(component);
+		this.parts.push(lines);
 	}
 
 	append(other: Rendered): void {
 		this.lines.push(...other.lines);
-		this.layout.push(...other.layout);
+		this.children.push(...other.children);
+		this.parts.push(...other.parts);
 	}
 }
 /**
@@ -228,6 +241,7 @@ export function installTranscriptCleanup(
 			unsubscribe();
 			chat.render = render;
 			chat.invalidate = invalidate;
+			delete (chat as MouseLayoutHost).childLines;
 			delete (chat as MouseLayoutHost).mouseLayout;
 			delete chat[INSTALLED];
 		},
@@ -268,11 +282,15 @@ export function installTranscriptCleanup(
 		}
 		// Container.handleMouse routes clicks through the layout its own render
 		// records, which this replacement render skips; record the drawn one.
+		const { children, parts, lines } = rendered;
+		(chat as MouseLayoutHost).childLines = { width, children, parts, lines };
 		(chat as MouseLayoutHost).mouseLayout = {
 			width,
-			children: rendered.layout,
+			children: children.map((component, index) => ({
+				component,
+				height: parts[index]?.length ?? 0,
+			})),
 		};
-		const lines = rendered.lines;
 		const offset = documentRowOffset(document, chat, width);
 		state.outline = sink
 			.map((entry) => ({ ...entry, row: offset + entry.row }))
@@ -551,7 +569,7 @@ function renderExpandable(
 	child: Component,
 	width: number,
 	state: State,
-): string[] {
+): readonly string[] {
 	const expandable = child as ToolComponent;
 	if (typeof expandable.setExpanded !== "function") return child.render(width);
 	expandable.setExpanded(state.expanded.get(child) ?? state.globalExpanded);
@@ -680,7 +698,7 @@ function swappedContentLines(
 	content: AssistantMessage["content"],
 	width: number,
 	state: State,
-): string[] {
+): readonly string[] {
 	if (!assistant.updateContent) return assistant.render(width);
 	// The updateContent swap below rebuilds the component's children and
 	// discards their internal render caches, so re-running it every frame
@@ -704,7 +722,7 @@ function swappedContentLines(
 	}
 }
 
-function hasSectionText(lines: string[]): boolean {
+function hasSectionText(lines: readonly string[]): boolean {
 	return lines.some((line) => {
 		const text = stripTerminalSequences(line).trim();
 		return (

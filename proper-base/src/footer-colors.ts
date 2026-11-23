@@ -124,7 +124,7 @@ export function installFooterColors(
 	// so cache the raw lines per width and drop them whenever a visible input
 	// changes. getLeafId() is O(1) and moves on every appended entry, which is
 	// what the usage totals are derived from.
-	const baseCache = new Map<number, string[]>();
+	const baseCache = new Map<number, readonly string[]>();
 	let baseKey: string | undefined;
 	let baseTheme: FooterTheme | undefined;
 	let baseAt = 0;
@@ -133,7 +133,7 @@ export function installFooterColors(
 		key: string,
 		theme: FooterTheme,
 		now: number,
-	): string[] => {
+	): readonly string[] => {
 		if (
 			key !== baseKey ||
 			theme !== baseTheme ||
@@ -196,11 +196,11 @@ export function installFooterColors(
  * the line keeps its width, matching how the provider's label would sit.
  */
 function tagFast(
-	lines: string[],
+	lines: readonly string[],
 	width: number,
 	model: string,
 	theme: FooterTheme,
-): string[] {
+): readonly string[] {
 	const index = lines.findIndex((line) =>
 		stripTerminalSequences(line).includes(model),
 	);
@@ -237,11 +237,11 @@ function tagFast(
 }
 
 function layoutFooter(
-	lines: string[],
+	lines: readonly string[],
 	width: number,
 	theme: FooterTheme,
-	reRender?: (width: number) => string[],
-): string[] {
+	reRender?: (width: number) => readonly string[],
+): readonly string[] {
 	if (lines.length < 2 || !Number.isFinite(width) || width < 20) return lines;
 
 	let statsLine = lines[1];
@@ -331,7 +331,7 @@ function realignFooterRemainder(
 }
 
 function colorFooter(
-	lines: string[],
+	lines: readonly string[],
 	{ level, model, now, theme }: FooterColorState,
 ): string[] {
 	const result = [...lines];

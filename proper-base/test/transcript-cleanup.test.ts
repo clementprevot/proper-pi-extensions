@@ -183,7 +183,7 @@ test("skill disclosures remain clickable in cleaned history and during a run", (
 	const tui = {
 		children: [document],
 		inputListeners: listeners,
-		previousScreen: [] as string[],
+		previousScreen: [] as readonly string[],
 		requestRender() {},
 		addInputListener(listener: (data: string) => any) {
 			listeners.add(listener);
@@ -893,19 +893,29 @@ test("the recorded mouse layout covers every rendered row", () => {
 	controller.settle();
 
 	const rendered = chat.render(80);
-	const layout = (
-		chat as unknown as {
-			mouseLayout: { width: number; children: Array<{ height: number }> };
-		}
-	).mouseLayout;
-	assert.equal(layout.width, 80);
+	const host = chat as unknown as {
+		childLines?: {
+			width: number;
+			children: unknown[];
+			parts: string[][];
+			lines: string[];
+		};
+		mouseLayout?: { width: number; children: Array<{ height: number }> };
+	};
+	const childLines = host.childLines;
+	assert.ok(childLines);
+	assert.equal(childLines.width, 80);
+	assert.equal(childLines.children.length, childLines.parts.length);
+	assert.deepEqual(childLines.parts.flat(), rendered);
+	assert.deepEqual(childLines.lines, rendered);
+	const legacy = host.mouseLayout;
+	assert.ok(legacy);
+	assert.equal(legacy.width, 80);
 	assert.equal(
-		layout.children.reduce((rows, entry) => rows + entry.height, 0),
+		legacy.children.reduce((rows, entry) => rows + entry.height, 0),
 		rendered.length,
 	);
 	controller.uninstall();
-	assert.equal(
-		(chat as unknown as { mouseLayout?: unknown }).mouseLayout,
-		undefined,
-	);
+	assert.equal(host.childLines, undefined);
+	assert.equal(host.mouseLayout, undefined);
 });
